@@ -1,12 +1,12 @@
 {
- "generatedAt": "2026-08-29T16:21:43.498Z",
+ "generatedAt": "2026-08-29T16:35:32.962Z",
  "provider": "groq",
  "model": "openai/gpt-oss-120b",
  "seed": 20260829,
  "seedNow": "2026-08-29T18:00:00+05:30",
  "counts": {
-  "audit": 469,
-  "messages": 108
+  "audit": 504,
+  "messages": 116
  },
  "audit": [
   [
@@ -2330,6 +2330,151 @@
    "Because the failure was due to insufficient funds rather than a broken payment instrument, the engine selected a timed retry. The retry was scheduled for 11:00 am IST on 3 Sept 2026, shortly after Priya's salary credit day (day 2) to increase the chance of a successful payment."
   ],
   [
+   "case_0074",
+   1,
+   "A recovery case was opened for ₹15,920 after Siddharth Kulkarni’s payment failed on 28 Aug 2026, 2:54 am IST. The gateway had already attempted two times before the case was opened."
+  ],
+  [
+   "case_0074",
+   2,
+   "The decline code was \"invalid_cvv\", which directly indicates a user input error. No other cause was considered."
+  ],
+  [
+   "case_0074",
+   3,
+   "The first outreach was scheduled for 28 Aug 2026, 3:24 am IST, which falls within quiet hours (9 pm–8 am IST). Therefore it was deferred until 8:30 am IST."
+  ],
+  [
+   "case_0074",
+   4,
+   "An SMS with a payment link was chosen for the first attempt because the customer must re-enter authentication details. It was sent on the customer’s preferred channel, SMS, at 8:30 am IST."
+  ],
+  [
+   "case_0074",
+   5,
+   "No response was recorded for the SMS sent at 8:30 am IST. The system logged this outcome as \"no_response\"."
+  ],
+  [
+   "case_0074",
+   6,
+   "A second outreach was scheduled for 30 Aug 2026, 2:54 am IST, again during quiet hours, so it was deferred until 8:30 am IST."
+  ],
+  [
+   "case_0074",
+   7,
+   "A second SMS with a payment link was selected for the second attempt, using a neutral tone, and sent on the preferred channel at 8:30 am IST."
+  ],
+  [
+   "case_0075",
+   1,
+   "A recovery case was opened for ₹650 when Priya Joshi’s payment failed at 7:24 am IST on 28 Aug 2026. The gateway had already attempted one transaction before the case was initiated."
+  ],
+  [
+   "case_0075",
+   2,
+   "The decline code \"authentication_failed\" was interpreted as a user input error, indicating the customer did not complete the authentication step. The code directly states this, leaving no ambiguity."
+  ],
+  [
+   "case_0075",
+   3,
+   "The first outreach was delayed because it would have occurred at 7:54 am IST, which falls within quiet hours (9:00 pm–8:00 am IST). Outreach was held until 8:30 am IST; silent retries are exempt from this rule."
+  ],
+  [
+   "case_0075",
+   4,
+   "A payment link was chosen as the first intervention because the customer needs to re‑enter authentication. WhatsApp was selected to match the customer’s preferred channel, and the message was scheduled for 8:30 am IST."
+  ],
+  [
+   "case_0075",
+   5,
+   "The intervention resulted in a recovered payment. The customer completed the payment after receiving the WhatsApp message."
+  ],
+  [
+   "case_0075",
+   6,
+   "The case was closed as recovered after a single intervention, with no days elapsed since the original failure."
+  ],
+  [
+   "case_0076",
+   1,
+   "A recovery case was opened for ₹1,750 after Karthik Khan’s payment failed on 28 Aug 2026, 10:02 am IST. The gateway had already attempted the transaction twice before this case was opened."
+  ],
+  [
+   "case_0076",
+   2,
+   "The decline code was \"technical_error\", indicating a temporary fault on the payment rails. This was recorded as a transient root cause with no ambiguity."
+  ],
+  [
+   "case_0076",
+   3,
+   "Because the failure was due to a payment rail fault, a silent auto‑retry was selected. The retry was scheduled for 15 minutes later, on 28 Aug 2026, 11:02 am IST."
+  ],
+  [
+   "case_0076",
+   4,
+   "The silent retry resulted in authorization by the issuer. The outcome was recorded as recovered."
+  ],
+  [
+   "case_0076",
+   5,
+   "The case was closed as recovered after the single intervention, with no days elapsed since the original failure."
+  ],
+  [
+   "case_0077",
+   1,
+   "The system opened a recovery case because a payment of ₹1,480 for the Streaming — Basic plan failed at 2:12 pm IST on 28 Aug 2026. The gateway had already attempted the transaction once before the agent intervened."
+  ],
+  [
+   "case_0077",
+   2,
+   "The decline code \"authentication_failed\" was interpreted as a user input error, meaning the customer either entered incorrect details or did not complete the 3‑DS step. The description of the decline code left no doubt about this classification."
+  ],
+  [
+   "case_0077",
+   3,
+   "An email was chosen for the first outreach because the customer’s preferred channel is email and a fresh authentication requires the customer to actively click a link. The message was scheduled for 3:12 pm IST, within the hour of the case opening, and a friendly tone was applied."
+  ],
+  [
+   "case_0077",
+   4,
+   "The system recorded that the email sent at 3:12 pm IST received no open or click, so the outcome is logged as no_response. No further action was taken at that moment."
+  ],
+  [
+   "case_0077",
+   5,
+   "A second email was scheduled for 2:12 pm IST on 30 Aug 2026, two days after the first attempt, using a neutral tone but still on the preferred email channel. The retry follows the rule of a maximum of three interventions and aims to give the customer another chance to complete authentication."
+  ],
+  [
+   "case_0078",
+   1,
+   "A recovery case was opened for ₹150 after Ishita Fernandes's payment failed at 7:24 pm IST on 28 Aug 2026. The gateway had already attempted twice."
+  ],
+  [
+   "case_0078",
+   2,
+   "The decline code 'do_not_honor' was interpreted as a bank‑side block because the issuer gave no specific reason. This bucket was inferred from the gateway message."
+  ],
+  [
+   "case_0078",
+   3,
+   "Outreach was postponed because the scheduled time 9:24 pm IST fell within quiet hours (9 pm–8 am IST). The case was held until 8:30 am IST the next day."
+  ],
+  [
+   "case_0078",
+   4,
+   "The first intervention was an alternate payment method link sent via WhatsApp in a friendly tone, scheduled for 8:30 am IST on 29 Aug 2026. The channel matched the customer's preference."
+  ],
+  [
+   "case_0078",
+   5,
+   "The message was seen but no payment was made. The outcome was recorded as failed."
+  ],
+  [
+   "case_0078",
+   6,
+   "A second alternate payment method link was scheduled for 7:24 pm IST on 29 Aug 2026, sent via WhatsApp in a neutral tone, following the same channel preference."
+  ],
+  [
    "case_0079",
    1,
    "A recovery case was opened for a ₹430 payment that failed for Meera Menon on 28 Aug 2026 at 7:32 pm IST. The gateway had already attempted the transaction twice before the case was created."
@@ -2353,6 +2498,36 @@
    "case_0079",
    5,
    "The case was closed as recovered after the single intervention, with the ₹430 payment received on the same day as the failure. No further actions were required."
+  ],
+  [
+   "case_0080",
+   1,
+   "A recovery case was opened for ₹7,240 after Abhishek Nair’s payment failed at 10:35 pm IST on 28 Aug 2026. The gateway had already attempted the transaction once."
+  ],
+  [
+   "case_0080",
+   2,
+   "The decline code was \"expired_card\", so the root cause was classified as instrument issue. The gateway message confirmed the card was no longer usable."
+  ],
+  [
+   "case_0080",
+   3,
+   "Outreach was delayed because the initial outreach time of 11:35 pm IST fell within quiet hours (9:00 pm–8:00 am IST). The case was held until 8:30 am IST on 29 Aug 2026."
+  ],
+  [
+   "case_0080",
+   4,
+   "The first intervention selected was an update payment method link sent via WhatsApp, the customer’s preferred channel, in a friendly tone. It was scheduled for 8:30 am IST on 29 Aug 2026."
+  ],
+  [
+   "case_0080",
+   5,
+   "The outcome of the intervention was recovered; the customer completed the payment after receiving the message."
+  ],
+  [
+   "case_0080",
+   6,
+   "The case was closed as recovered after a single intervention, with no days elapsed between the failure and recovery."
   ]
  ],
  "messages": [
@@ -2892,9 +3067,49 @@
    "Hi Priya, we noticed your ₹510 payment for the Fitness App monthly subscription didn’t go through. It looks like the card was blocked by the bank.\nYou can complete the payment instantly using UPI by clicking this link: trellis.in/p/0037"
   ],
   [
+   "case_0074",
+   1,
+   "Your payment of ₹15,920 for Billing Software — Growth failed. Please retry: trellis.in/p/0044"
+  ],
+  [
+   "case_0074",
+   2,
+   "Payment of ₹15,920 for Billing Software — Growth was not processed. Retry here: trellis.in/p/0044"
+  ],
+  [
+   "case_0075",
+   1,
+   "Hi Priya, your subscription to Fitness App — Monthly is still pending. Please complete the payment using the link below:\n\ntrellis.in/p/0063\n\nThank you for choosing Trellis."
+  ],
+  [
+   "case_0077",
+   1,
+   "Subject: Action needed: Complete your payment\n\nHello Ananya,\n\nYour payment of ₹1,480 for Streaming — Basic could not be processed because the authentication step failed. Please click the link below to re‑enter your details and complete the payment:\n\ntrellis.in/p/0050\n\nThank you,\nTrellis"
+  ],
+  [
+   "case_0077",
+   2,
+   "Subject: Reminder: Pending payment for your subscription\n\nHello Ananya,\n\nWe noticed that the payment of ₹1,480 for Streaming — Basic is still pending. To finish the transaction, please use the link below:\n\ntrellis.in/p/0050\n\nRegards,\nTrellis"
+  ],
+  [
+   "case_0078",
+   1,
+   "Ishita, your ₹150 payment for Cloud Storage 200GB was declined. Try UPI here: trellis.in/p/0005. Let us know if you need help."
+  ],
+  [
+   "case_0078",
+   2,
+   "Ishita, the ₹150 payment for Cloud Storage 200GB was declined. Please use UPI to pay: trellis.in/p/0005. Contact us if you have questions."
+  ],
+  [
    "case_0079",
    1,
    "Your ₹430 payment for Streaming — Premium is pending. Please complete it here: trellis.in/p/0010"
+  ],
+  [
+   "case_0080",
+   1,
+   "Hi Abhishek, your card has expired. Please update your payment method here: trellis.in/p/0014. Thank you."
   ]
  ]
 }
