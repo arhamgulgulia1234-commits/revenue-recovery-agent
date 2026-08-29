@@ -1,0 +1,40 @@
+# dependencies
+node_modules/
+.pnp/
+.pnp.js
+
+# next.js
+frontend/.next/
+frontend/out/
+frontend/next-env.d.ts
+
+# production builds
+build/
+dist/
+
+# local data (generated, reproducible via `npm run seed`)
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+backend/data/
+
+# env
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# misc
+.DS_Store
+*.pem
+.vercel
+.idea/
+.vscode/
+coverage/

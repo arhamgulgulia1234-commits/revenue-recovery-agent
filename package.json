@@ -1,0 +1,29 @@
+{
+  "name": "ai-revenue-recovery",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Agentic revenue recovery — detects revenue at risk, diagnoses root cause, decides and executes the recovery intervention, and enforces compliant stopping rules with a full audit trail.",
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "concurrently -n backend,frontend -c cyan,magenta \"npm:dev:backend\" \"npm:dev:frontend\"",
+    "dev:backend": "npm run dev --workspace backend",
+    "dev:frontend": "npm run dev --workspace frontend",
+    "seed": "npm run seed --workspace backend",
+    "simulate": "npm run simulate --workspace backend",
+    "reset": "npm run reset --workspace backend",
+    "demo": "npm run reset && npm run seed && npm run simulate",
+    "build": "npm run build --workspace frontend",
+    "start": "concurrently -n backend,frontend -c cyan,magenta \"npm:start:backend\" \"npm:start:frontend\"",
+    "start:backend": "npm run start --workspace backend",
+    "start:frontend": "npm run start --workspace frontend"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
