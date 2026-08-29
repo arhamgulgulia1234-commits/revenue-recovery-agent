@@ -17,6 +17,7 @@
     "verify": "npm run verify --workspace backend",
     "case": "npm run case --workspace backend --",
     "score": "npm run score --workspace backend --",
+    "narrate": "npm run narrate --workspace backend --",
     "demo": "npm run reset && npm run seed && npm run simulate && npm run verify",
     "build": "npm run build --workspace frontend",
     "start": "concurrently -n backend,frontend -c cyan,magenta \"npm:start:backend\" \"npm:start:frontend\"",
