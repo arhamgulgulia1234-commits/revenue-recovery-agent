@@ -41,13 +41,15 @@ export const templateNarrator = {
         );
 
       case 'root_cause_classified':
+        // The numeric confidence is shown as its own field in the UI. Keeping it
+        // out of the prose stops a narrator repeating it as though it were a
+        // fact about the customer rather than a property of the lookup table.
         return (
-          `Classified as ${BUCKETS[classification.bucket].label.toLowerCase()} ` +
-          `(${Math.round(classification.confidence * 100)}% confidence) because the gateway returned ` +
-          `"${attempt.decline_code}" — ${BUCKETS[classification.bucket].summary}.` +
+          `Classified as ${BUCKETS[classification.bucket].label.toLowerCase()} because the gateway ` +
+          `returned "${attempt.decline_code}" — ${BUCKETS[classification.bucket].summary}.` +
           (classification.confidence < 0.7
-            ? ' The issuer did not give a specific reason, so this bucket is inferred rather than stated.'
-            : '')
+            ? ' The issuer did not give a specific reason, so this bucket is inferred rather than stated by the code.'
+            : ' The decline code states this directly, so there is no ambiguity about the cause.')
         );
 
       case 'intervention_selected': {

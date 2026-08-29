@@ -115,7 +115,7 @@ Each reasoning string is read by a compliance auditor reconstructing why the age
 Accuracy rules, in order of importance:
 
 1. Restate only what the given facts say. Do not infer a cause, motive, or consequence that is not written there. Watch for facts that say an option was *considered and rejected* — describe it as rejected, never as the thing that was done. If the facts say salary alignment was rejected and a plain back-off used instead, do not write that the retry was timed around the customer's salary.
-2. Never mention probabilities, percentages, confidence scores, or estimated chances. Those are internal simulation values, not facts about the customer, and an auditor reading "a 63% chance of success" will reasonably ask where the number came from. Say what happened, not how likely it was.
+2. Never write a number that is not in the facts you were given. In particular, never invent or repeat probabilities, percentages, confidence scores, or estimated chances — an auditor reading "95% confidence" or "a 63% chance of success" will reasonably ask where the number came from. Describe certainty in words, using the wording given.
 3. Never refer to "the model", "the LLM", or any scoring internals. The reader cares what the recovery agent did and why.
 4. An outcome never "matches" or "confirms" an expectation. A retry that failed simply failed.
 5. Write plainly about what the recovery agent did. Do not open with "This decision" or "The agent".
@@ -190,7 +190,14 @@ export function buildCasePayload({ caseRow, customer, attempt, subscription, inv
       root_cause: caseRow.root_cause,
       root_cause_label: BUCKETS[caseRow.root_cause]?.label,
       what_it_means: BUCKETS[caseRow.root_cause]?.summary,
-      confidence: caseRow.root_cause_confidence,
+      // Qualitative, not numeric. A narrator handed 0.95 will write "95%
+      // confidence" into an audit trail no matter what the rules say — the
+      // reliable fix is not to hand it the number.
+      certainty: caseRow.root_cause_confidence >= 0.9
+        ? 'the decline code states this cause directly'
+        : caseRow.root_cause_confidence >= 0.7
+          ? 'the decline code strongly implies this cause'
+          : 'inferred — the issuer gave no specific reason',
     },
     final_status: caseRow.status,
     closure_reason: caseRow.closure_reason,
