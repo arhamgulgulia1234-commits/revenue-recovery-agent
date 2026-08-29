@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { getDb } from '../db/index.js';
 import { scoreCases } from '../engine/score-service.js';
+import { PROVIDER, MODEL } from '../engine/llm-narrator.js';
 
 export const casesRouter = Router();
 
@@ -58,6 +59,9 @@ casesRouter.get('/:id', (req, res) => {
     interventions,
     audit,
     promises,
+    // Which model wrote the narration, so the UI can name it instead of
+    // hardcoding a provider that may not be the one in use.
+    narrator: { provider: PROVIDER, model: MODEL },
     timeline: buildTimeline(audit, interventions),
   });
 });

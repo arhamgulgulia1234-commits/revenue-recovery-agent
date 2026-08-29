@@ -28,5 +28,6 @@ export type CaseDetail = {
     opted_out_at: string | null; disputed_at: string | null;
     recovery_score: number; score_band: string; score_explanation: string;
   };
+  narrator: { provider: string; model: string };
   timeline: TimelineEvent[];
 };

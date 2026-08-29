@@ -70,7 +70,7 @@ export default async function CasePage({ params }: { params: Promise<{ id: strin
       {/* ---- The story ---- */}
       <section>
         <h2 className="text-sm font-semibold mb-5">Decision timeline</h2>
-        <Timeline events={data.timeline} caseRow={c} />
+        <Timeline events={data.timeline} caseRow={c} narrator={data.narrator} />
       </section>
 
       {/* ---- Final status, stated deliberately ---- */}

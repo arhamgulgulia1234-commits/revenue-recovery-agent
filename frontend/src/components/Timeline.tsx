@@ -28,7 +28,16 @@ const ACTION_LABELS: Record<string, string> = {
   escalation_flag: 'Escalated to account manager',
 };
 
-export function Timeline({ events, caseRow }: { events: TimelineEvent[]; caseRow: CaseDetail['case'] }) {
+export function Timeline({
+  events, caseRow, narrator,
+}: {
+  events: TimelineEvent[];
+  caseRow: CaseDetail['case'];
+  narrator: CaseDetail['narrator'];
+}) {
+  // Name the model that actually wrote it — the provider is swappable, so a
+  // hardcoded vendor name goes stale the moment someone changes LLM_PROVIDER.
+  const modelLabel = narrator.model.split('/').pop() ?? narrator.model;
   return (
     <ol className="relative">
       {events.map((e, i) => {
@@ -59,8 +68,11 @@ export function Timeline({ events, caseRow }: { events: TimelineEvent[]; caseRow
               </h3>
               <time className="text-xs text-muted">{istDateTime(e.created_at)} IST</time>
               {e.reasoning_source === 'llm' && (
-                <span className="text-[10px] uppercase tracking-wide rounded px-1.5 py-0.5 bg-violet-500/10 text-violet-500 font-medium">
-                  Claude
+                <span
+                  title={`Written by ${narrator.provider} · ${narrator.model}`}
+                  className="text-[10px] uppercase tracking-wide rounded px-1.5 py-0.5 bg-violet-500/10 text-violet-500 font-medium"
+                >
+                  {modelLabel}
                 </span>
               )}
             </div>
