@@ -1,53 +1,86 @@
 /**
- * Claude narrator.
+ * LLM narrator.
  *
  * Implements the same contract as the template narrator — reasoning strings and
- * outreach copy — but with Claude writing the prose. It runs as a *second pass*
+ * outreach copy — but with a model writing the prose. It runs as a *second pass*
  * over cases the engine has already decided, not inside the engine loop, for two
  * reasons:
  *
  *   1. better-sqlite3 is synchronous and the batch runs inside one transaction.
  *      An await cannot go there.
  *   2. More importantly, it keeps the decision and the description of the
- *      decision strictly separate. Claude sees what was decided and explains it.
- *      It cannot change what was chosen, when, or over which channel — those are
- *      already rows in the database by the time this runs.
+ *      decision strictly separate. The model sees what was decided and explains
+ *      it. It cannot change what was chosen, when, or over which channel — those
+ *      are already rows in the database by the time this runs.
  *
  * One request per case, not per audit entry: the whole case goes in and every
  * reasoning string plus every message comes back together. That is ~80 calls for
  * the batch instead of ~600, and it lets each explanation refer to the ones
  * around it instead of being written blind.
+ *
+ * Two providers, same prompt and same schema:
+ *   groq      (default) — free tier, OpenAI-compatible, strict JSON schema
+ *   anthropic          — set LLM_PROVIDER=anthropic
  */
 
-import Anthropic from '@anthropic-ai/sdk';
-import { z } from 'zod';
-import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import { formatIst } from '../lib/time.js';
 import { BUCKETS } from './classifier.js';
 import { ACTION_LABELS } from './matrix.js';
 import { POLICY } from '../lib/taxonomy.js';
 
-export const MODEL = process.env.ANTHROPIC_MODEL || 'claude-opus-5';
+export const PROVIDER = (process.env.LLM_PROVIDER || 'groq').toLowerCase();
 export const MERCHANT_NAME = process.env.MERCHANT_NAME || 'Trellis';
 
-const NarrationSchema = z.object({
-  audit: z.array(z.object({
-    sequence: z.number().describe('the audit entry sequence number this reasoning is for'),
-    reasoning: z.string().describe(
-      'Two or three sentences of plain English explaining this decision to an auditor.'),
-  })),
-  messages: z.array(z.object({
-    sequence: z.number().describe('the intervention sequence number this message is for'),
-    subject: z.string().describe('Email subject line. Empty string for SMS and WhatsApp.'),
-    body: z.string().describe('The message body exactly as the customer would receive it.'),
-  })),
-});
-
 /**
- * The stable half of the prompt — policy, voice, and the output contract.
- * Kept byte-identical across every call so it caches; the per-case facts go in
- * the user turn, after the cache breakpoint.
+ * Defaults per provider. On Groq only the gpt-oss and qwen families support
+ * strict JSON schema — a llama model here would silently fall back to prose
+ * and every case would fail to parse.
  */
+const DEFAULT_MODEL = { groq: 'openai/gpt-oss-120b', anthropic: 'claude-opus-5' };
+export const MODEL = process.env.LLM_MODEL || DEFAULT_MODEL[PROVIDER] || DEFAULT_MODEL.groq;
+
+/** Free tiers are rate limited; fewer in flight beats a wall of 429s. */
+export const DEFAULT_CONCURRENCY = PROVIDER === 'groq' ? 3 : 6;
+
+/** Provider-neutral. Groq's strict mode needs every key required and no extras. */
+export const NARRATION_JSON_SCHEMA = {
+  type: 'object',
+  properties: {
+    audit: {
+      type: 'array',
+      description: 'One entry for every audit entry given, in the same order.',
+      items: {
+        type: 'object',
+        properties: {
+          sequence: { type: 'integer', description: 'the audit entry sequence number' },
+          reasoning: {
+            type: 'string',
+            description: 'Two or three sentences of plain English explaining this decision.',
+          },
+        },
+        required: ['sequence', 'reasoning'],
+        additionalProperties: false,
+      },
+    },
+    messages: {
+      type: 'array',
+      description: 'One entry for every intervention whose channel is not "none".',
+      items: {
+        type: 'object',
+        properties: {
+          sequence: { type: 'integer', description: 'the intervention sequence number' },
+          subject: { type: 'string', description: 'Email subject. Empty string for SMS/WhatsApp.' },
+          body: { type: 'string', description: 'The message exactly as the customer receives it.' },
+        },
+        required: ['sequence', 'subject', 'body'],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ['audit', 'messages'],
+  additionalProperties: false,
+};
+
 const SYSTEM_PROMPT = `You are the audit-and-communications layer of an automated revenue recovery agent for ${MERCHANT_NAME}, an Indian business collecting subscription payments and B2B invoices in INR.
 
 A deterministic rules engine has ALREADY made every decision on the case you are given: the root cause, which intervention to run, on which channel, in which tone, and when. Those decisions are settled and recorded. Your job is only to explain them and to write the customer-facing copy.
@@ -75,13 +108,32 @@ Each reasoning string is read by a compliance auditor reconstructing why the age
 - Never blame the customer for a bank-side decline. Say plainly that it happens and what fixes it.
 - No exclamation marks. No "Dear Valued Customer". Write like a competent person at a company the customer already pays.
 
-Return one reasoning string for every audit entry given, and one message for every intervention that has a channel other than "none". Silent retries send nothing — omit them from messages.`;
+Return one reasoning string for every audit entry given, and one message for every intervention that has a channel other than "none". Silent retries send nothing — omit them from messages. Respond with JSON only.`;
 
-export function makeClient() {
-  return new Anthropic();
+// ---------------------------------------------------------------------------
+// Clients
+// ---------------------------------------------------------------------------
+
+export async function makeClient() {
+  if (PROVIDER === 'anthropic') {
+    const { default: Anthropic } = await import('@anthropic-ai/sdk');
+    return { kind: 'anthropic', client: new Anthropic() };
+  }
+  const { default: Groq } = await import('groq-sdk');
+  return { kind: 'groq', client: new Groq({ apiKey: process.env.GROQ_API_KEY }) };
 }
 
-/** Shape one case into the facts Claude needs, and nothing more. */
+export function credentialsPresent() {
+  return PROVIDER === 'anthropic'
+    ? Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN)
+    : Boolean(process.env.GROQ_API_KEY);
+}
+
+// ---------------------------------------------------------------------------
+// Payload
+// ---------------------------------------------------------------------------
+
+/** Shape one case into the facts the model needs, and nothing more. */
 export function buildCasePayload({ caseRow, customer, attempt, subscription, invoice, audit, interventions }) {
   const link = `${MERCHANT_NAME.toLowerCase()}.in/p/${attempt.id.replace('pay_', '')}`;
 
@@ -118,8 +170,8 @@ export function buildCasePayload({ caseRow, customer, attempt, subscription, inv
       sequence: a.sequence,
       event_type: a.event_type,
       decision_recorded: a.decision,
-      // The template reasoning is passed as the factual record of what happened,
-      // not as prose to imitate.
+      // The template reasoning is the factual record of what happened,
+      // not prose to imitate.
       facts: a.reasoning_text,
       at: formatIst(a.created_at),
     })),
@@ -137,26 +189,79 @@ export function buildCasePayload({ caseRow, customer, attempt, subscription, inv
   };
 }
 
-/**
- * Narrate one case. Returns null on any failure so the caller keeps the
- * template text — a narration outage must never take the demo down.
- */
-export async function narrateCase(client, payload, { signal } = {}) {
-  const response = await client.messages.parse({
+export const userMessage = (payload) =>
+  'Explain every decision on this recovery case, and write the outreach copy.\n\n' +
+  '```json\n' + JSON.stringify(payload, null, 2) + '\n```';
+
+// ---------------------------------------------------------------------------
+// Narration
+// ---------------------------------------------------------------------------
+
+/** Narrate one case. Throws on failure; the caller keeps the template text. */
+export async function narrateCase({ kind, client }, payload) {
+  return kind === 'anthropic'
+    ? narrateAnthropic(client, payload)
+    : narrateGroq(client, payload);
+}
+
+async function narrateGroq(client, payload) {
+  const res = await client.chat.completions.create({
+    model: MODEL,
+    temperature: 0.4,
+    max_completion_tokens: 8000,
+    messages: [
+      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'user', content: userMessage(payload) },
+    ],
+    response_format: {
+      type: 'json_schema',
+      json_schema: { name: 'case_narration', strict: true, schema: NARRATION_JSON_SCHEMA },
+    },
+  });
+
+  const text = res.choices?.[0]?.message?.content;
+  if (!text) throw new Error('empty completion');
+  return { parsed: validate(JSON.parse(text)), usage: normaliseUsage(res.usage) };
+}
+
+async function narrateAnthropic(client, payload) {
+  const res = await client.messages.create({
     model: MODEL,
     max_tokens: 8000,
     thinking: { type: 'adaptive' },
     system: [{ type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
-    messages: [{
-      role: 'user',
-      content:
-        'Explain every decision on this recovery case, and write the outreach copy.\n\n' +
-        '```json\n' + JSON.stringify(payload, null, 2) + '\n```',
-    }],
-    output_config: { format: zodOutputFormat(NarrationSchema) },
-  }, { signal });
+    messages: [{ role: 'user', content: userMessage(payload) }],
+    output_config: {
+      format: { type: 'json_schema', schema: NARRATION_JSON_SCHEMA, name: 'case_narration' },
+    },
+  });
 
-  return { parsed: response.parsed_output, usage: response.usage };
+  const block = res.content.find((b) => b.type === 'text');
+  if (!block) throw new Error('no text block in response');
+  return { parsed: validate(JSON.parse(block.text)), usage: normaliseUsage(res.usage) };
 }
 
-export { SYSTEM_PROMPT, NarrationSchema };
+/**
+ * Trust nothing structurally. Strict schema mode is a strong guarantee about
+ * shape, not about the model returning an entry for every sequence we asked
+ * about — the caller only writes rows it gets back, so a short answer degrades
+ * to partial narration rather than corrupting the trail.
+ */
+function validate(obj) {
+  if (!obj || typeof obj !== 'object') throw new Error('response was not an object');
+  const audit = Array.isArray(obj.audit) ? obj.audit : [];
+  const messages = Array.isArray(obj.messages) ? obj.messages : [];
+  if (!audit.length) throw new Error('no audit reasoning returned');
+  return {
+    audit: audit.filter((a) => Number.isInteger(a?.sequence) && typeof a?.reasoning === 'string'),
+    messages: messages.filter((m) => Number.isInteger(m?.sequence) && typeof m?.body === 'string'),
+  };
+}
+
+const normaliseUsage = (u = {}) => ({
+  input: u.prompt_tokens ?? u.input_tokens ?? 0,
+  output: u.completion_tokens ?? u.output_tokens ?? 0,
+  cached: u.cache_read_input_tokens ?? 0,
+});
+
+export { SYSTEM_PROMPT };

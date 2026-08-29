@@ -13,7 +13,8 @@
 import 'dotenv/config';
 import { getDb } from '../db/index.js';
 import {
-  makeClient, buildCasePayload, narrateCase, SYSTEM_PROMPT, MODEL,
+  makeClient, buildCasePayload, narrateCase, credentialsPresent,
+  SYSTEM_PROMPT, userMessage, MODEL, PROVIDER, DEFAULT_CONCURRENCY,
 } from '../engine/llm-narrator.js';
 
 const args = process.argv.slice(2);
@@ -21,7 +22,7 @@ const dryRun = args.includes('--dry-run');
 const limitArg = args.indexOf('--limit');
 const limit = limitArg >= 0 ? Number(args[limitArg + 1]) : null;
 const only = args.find((a) => a.startsWith('case_'));
-const CONCURRENCY = Number(process.env.NARRATE_CONCURRENCY) || 6;
+const CONCURRENCY = Number(process.env.NARRATE_CONCURRENCY) || DEFAULT_CONCURRENCY;
 
 const db = getDb();
 
@@ -62,28 +63,25 @@ if (dryRun) {
   console.log('\n════════ SYSTEM PROMPT (cached across calls) ════════\n');
   console.log(SYSTEM_PROMPT);
   console.log('\n════════ USER MESSAGE ════════\n');
-  console.log('Explain every decision on this recovery case, and write the outreach copy.\n');
-  console.log('```json');
-  console.log(JSON.stringify(payload, null, 2));
-  console.log('```');
+  console.log(userMessage(payload));
   console.log(`\n════════ REQUEST ════════`);
-  console.log(`model: ${MODEL} · thinking: adaptive · structured output (zod schema)`);
+  console.log(`provider: ${PROVIDER} · model: ${MODEL} · strict JSON schema`);
   console.log(`cases that would be narrated: ${cases.length}, ${CONCURRENCY} at a time`);
   console.log('\nNo API call was made.\n');
   process.exit(0);
 }
 
-if (!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_AUTH_TOKEN) {
+if (!credentialsPresent()) {
+  const varName = PROVIDER === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'GROQ_API_KEY';
   console.error(`
-✗ No Anthropic credentials found.
+✗ No ${PROVIDER} credentials found.
 
-  Set one of these and re-run:
-    export ANTHROPIC_API_KEY=sk-ant-...
-    echo "ANTHROPIC_API_KEY=sk-ant-..." >> .env
+  Add your key to .env (it is gitignored, so it never reaches GitHub):
+    ${varName}=...
 
-  Or run \`ant auth login\` if you use the Anthropic CLI.
+  Groq keys are free at https://console.groq.com/keys
 
-  Inspect the prompt without calling the API:
+  Inspect the prompt without calling anything:
     npm run narrate -- --dry-run
 `);
   process.exit(1);
@@ -96,14 +94,37 @@ const updateAudit = db.prepare(
 const updateLog = db.prepare(
   `UPDATE intervention_logs SET message_sent = ? WHERE case_id = ? AND sequence = ?`);
 
-const client = makeClient();
+const client = await makeClient();
 const stats = { ok: 0, failed: 0, audit: 0, messages: 0, inTok: 0, outTok: 0, cacheRead: 0 };
 const failures = [];
+
+/**
+ * Free tiers rate limit hard. A 429 is a "come back later", not a failure —
+ * back off and retry rather than dropping the case to template text.
+ */
+async function withRetry(fn, attempts = 4) {
+  for (let i = 0; ; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const status = err?.status ?? err?.response?.status;
+      const retryable = status === 429 || (status >= 500 && status < 600);
+      if (!retryable || i >= attempts - 1) throw err;
+      const headerWait = Number(err?.headers?.['retry-after']) * 1000;
+      const wait = Number.isFinite(headerWait) && headerWait > 0
+        ? headerWait
+        : Math.min(2 ** i * 1500 + Math.random() * 500, 20000);
+      process.stdout.write('~');
+      await new Promise((r) => setTimeout(r, wait));
+    }
+  }
+}
 
 async function runOne(caseRow) {
   const b = bundle(caseRow);
   try {
-    const { parsed, usage } = await narrateCase(client, buildCasePayload(b));
+    const { parsed, usage } = await withRetry(
+      () => narrateCase(client, buildCasePayload(b)));
     if (!parsed) throw new Error('structured output did not parse');
 
     const apply = db.transaction(() => {
@@ -124,9 +145,9 @@ async function runOne(caseRow) {
     apply();
 
     stats.ok++;
-    stats.inTok += usage.input_tokens ?? 0;
-    stats.outTok += usage.output_tokens ?? 0;
-    stats.cacheRead += usage.cache_read_input_tokens ?? 0;
+    stats.inTok += usage.input;
+    stats.outTok += usage.output;
+    stats.cacheRead += usage.cached;
     process.stdout.write('.');
   } catch (err) {
     // Keep the template text for this case rather than losing it.
@@ -146,14 +167,15 @@ async function pool(items, size, fn) {
   );
 }
 
-console.log(`\n  Narrating ${cases.length} cases with ${MODEL} (${CONCURRENCY} at a time)\n`);
+console.log(`\n  Narrating ${cases.length} cases · ${PROVIDER} · ${MODEL} · ${CONCURRENCY} at a time`);
+console.log('  . ok   ~ rate-limited, retrying   x failed (keeps template text)\n');
 const started = Date.now();
 await pool(cases, CONCURRENCY, runOne);
 const secs = ((Date.now() - started) / 1000).toFixed(1);
 
 console.log(`\n\n  ${stats.ok} cases narrated, ${stats.failed} failed  ·  ${secs}s`);
 console.log(`  ${stats.audit} reasoning strings, ${stats.messages} messages rewritten`);
-console.log(`  tokens: ${stats.inTok} in (${stats.cacheRead} from cache), ${stats.outTok} out`);
+console.log(`  tokens: ${stats.inTok} in${stats.cacheRead ? ` (${stats.cacheRead} from cache)` : ''}, ${stats.outTok} out`);
 if (failures.length) {
   console.log('\n  Failures (these cases kept their template text):');
   for (const f of failures.slice(0, 10)) console.log(`    ${f}`);

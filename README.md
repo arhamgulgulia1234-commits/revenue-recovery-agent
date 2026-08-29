@@ -52,10 +52,13 @@ Open <http://localhost:3000>.
 | `npm run verify` | Independently re-check every compliance rule against stored rows |
 | `npm run case` | Print full decision histories for a few representative cases |
 | `npm run score` | Inspect the priors, example scores, needs-attention list and calibration |
+| `npm run narrate` | Rewrite the reasoning and message copy with an LLM (`-- --dry-run` to preview the prompt) |
 | `npm run demo` | `reset` + `seed` + `simulate` + `verify` — a clean run from scratch |
 
-Copy `.env.example` to `.env` to set `ANTHROPIC_API_KEY`. The engine falls back
-to deterministic templates when it is unset, so the demo always runs.
+Copy `.env.example` to `.env` and set `GROQ_API_KEY` (free at
+[console.groq.com/keys](https://console.groq.com/keys)) to enable LLM narration.
+The engine falls back to deterministic templates when no key is set, so the demo
+always runs either way.
 
 ---
 
@@ -92,8 +95,18 @@ to deterministic templates when it is unset, so the demo always runs.
 
 ### Where the LLM is used — and where it deliberately isn't
 
-Claude writes **(a)** the plain-English reasoning on each audit entry and
+The model writes **(a)** the plain-English reasoning on each audit entry and
 **(b)** the outreach message copy, in the right tone for the channel.
+
+It runs as a **second pass** over cases the engine has already decided
+(`npm run narrate`), never inside the decision loop. By the time it runs, the
+action, channel, tone and timing are already rows in the database — it explains
+them and cannot change them. Any case that fails keeps its template text, so a
+narration outage degrades the prose rather than breaking the run.
+
+Provider is swappable via `LLM_PROVIDER`: `groq` (default, free tier,
+`openai/gpt-oss-120b`) or `anthropic` (`claude-opus-5`). Same prompt, same
+strict JSON schema, same contract.
 
 Root-cause classification and the intervention matrix are **plain rules**. A
 recovery decision that touches someone's money should be deterministic,
@@ -276,6 +289,7 @@ It is also in-sample — at 80 cases there is no held-out set.
 - [x] Independent compliance verifier
 - [x] Recovery-likelihood scoring with per-factor explanations
 - [x] Needs-attention triage ranked by expected loss, and an insights panel
-- [ ] Swap the template narrator for Claude (interface is in place; needs `ANTHROPIC_API_KEY`)
-- [ ] Case list and case-timeline drill-down UI
+- [x] LLM narrator (Groq or Anthropic) as a second pass over decided cases
+- [x] Case timeline drill-down with the full decision story
 - [ ] Dedicated stopped-case compliance view
+- [ ] Deploy to Render
