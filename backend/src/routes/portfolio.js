@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { getDb } from '../db/index.js';
+import { scoreCases } from '../engine/score-service.js';
 
 export const portfolioRouter = Router();
 
@@ -71,7 +72,26 @@ portfolioRouter.get('/failures', (req, res) => {
     WHERE p.status = 'failed'
     ORDER BY p.created_at DESC
     LIMIT ?`).all(limit);
-  res.json({ count: rows.length, failures: rows });
+
+  // Attach a recovery-likelihood score to every row that reached a case.
+  const withCases = rows.filter((r) => r.case_id);
+  const { scored } = scoreCases(getDb(), withCases.map((r) => ({
+    id: r.case_id, customer_id: r.customer_id, root_cause: r.root_cause,
+    amount_at_risk_inr: r.amount_inr, attempts_used: r.attempts_used,
+    status: r.case_status, opened_at: r.created_at,
+  })));
+  const scoreById = new Map(scored.map((s) => [s.id, s]));
+
+  res.json({
+    count: rows.length,
+    failures: rows.map((r) => {
+      const s = r.case_id ? scoreById.get(r.case_id) : null;
+      return s
+        ? { ...r, recovery_score: s.recovery_score, score_band: s.score_band,
+            score_explanation: s.score_explanation }
+        : r;
+    }),
+  });
 });
 
 portfolioRouter.get('/customers', (req, res) => {

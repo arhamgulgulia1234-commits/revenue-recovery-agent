@@ -5,6 +5,7 @@ import { getDb, DB_PATH } from './db/index.js';
 import { POLICY } from './lib/taxonomy.js';
 import { portfolioRouter } from './routes/portfolio.js';
 import { casesRouter } from './routes/cases.js';
+import { insightsRouter } from './routes/insights.js';
 
 const app = express();
 app.use(cors());
@@ -18,6 +19,7 @@ app.get('/health', (req, res) => {
 
 app.use('/api/portfolio', portfolioRouter);
 app.use('/api/cases', casesRouter);
+app.use('/api/insights', insightsRouter);
 
 app.use((req, res) => res.status(404).json({ error: 'not_found', path: req.path }));
 app.use((err, req, res, _next) => {
