@@ -51,6 +51,7 @@ Open <http://localhost:3000>.
 | `npm run reset` | Drop and recreate every table |
 | `npm run verify` | Independently re-check every compliance rule against stored rows |
 | `npm run case` | Print full decision histories for a few representative cases |
+| `npm run score` | Inspect the priors, example scores, needs-attention list and calibration |
 | `npm run demo` | `reset` + `seed` + `simulate` + `verify` — a clean run from scratch |
 
 Copy `.env.example` to `.env` to set `ANTHROPIC_API_KEY`. The engine falls back
@@ -212,6 +213,58 @@ rather than trusting the engine's own bookkeeping:
 
 ---
 
+## Recovery-likelihood scoring
+
+Every case carries a 0–100% score for how likely it is to end up recovered,
+built from patterns in the batch rather than a trained model — `scorer.js` is a
+function you can read and tune by editing constants.
+
+1. **Base** — a weighted blend of three empirical rates: root cause (0.45),
+   attempts already failed (0.35), customer segment (0.20).
+2. **Modifiers** — multiplicative adjustments for what population rates cannot
+   see: this customer's own prior recoveries and failures, their reliability,
+   and whether this amount is unusual for them.
+3. **Overrides** — an opted-out or disputed customer scores 0, because the agent
+   is forbidden to act, not because the money is uncollectable.
+
+Every factor carries its own explanation, so a score is never a number without a
+reason:
+
+> *"43% — receivable failures recover 42% of the time (11 in the batch), and 2 of
+> 3 attempts have already failed, where cases recover only 24% of the time.
+> Adjusted up because they have recovered 1 previous case and their payment
+> reliability is 0.86, which is strong."*
+
+Rates are smoothed toward the global average with 5 pseudo-observations, so a
+five-case bucket at 100% reports as 76% rather than pretending certainty.
+
+**Two denominator choices matter more than the arithmetic.** Cases the agent was
+never permitted to touch are excluded — they measure permission, not
+recoverability. And in-progress cases stay in the denominator as not-recovered:
+a case that recovers closes immediately while a failing one grinds through all
+three attempts and stays open, so conditioning on "settled" reads 67% against a
+true rate of 46%.
+
+### Calibration
+
+```
+predicted     n    actual
+40–50%       11      36%
+50–60%       32      59%
+60%+         23      61%
+
+Overall predicted 57% vs actual 56%
+Mean score, recovered 58% · not recovered 55% · separation 2.6 points
+```
+
+Aggregate calibration is good and the ranking is monotonic, but separation is
+modest. That is expected rather than broken: scored at case-open, the attempt
+factor is identical for every case, so 35% of the weight does no work. The score
+earns its keep as attempts accumulate, where that factor swings 53% → 31% → 24%.
+It is also in-sample — at 80 cases there is no held-out set.
+
+---
+
 ## Status
 
 - [x] Project scaffold, SQLite schema, dev scripts
@@ -221,6 +274,8 @@ rather than trusting the engine's own bookkeeping:
 - [x] Outreach copy per channel and tone
 - [x] Recovery dashboard: at risk vs recovered, recovery rate, per-case status
 - [x] Independent compliance verifier
+- [x] Recovery-likelihood scoring with per-factor explanations
+- [x] Needs-attention triage ranked by expected loss, and an insights panel
 - [ ] Swap the template narrator for Claude (interface is in place; needs `ANTHROPIC_API_KEY`)
 - [ ] Case list and case-timeline drill-down UI
 - [ ] Dedicated stopped-case compliance view
