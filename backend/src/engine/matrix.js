@@ -97,9 +97,13 @@ export function decideIntervention({ bucket, attemptIndex, customer, attempt, ca
           fundsTiming: funds,
           rationale: {
             why: 'the balance was short, not the instrument broken',
+            // Phrased so the negative case cannot be read as its opposite:
+            // a narrator that sees "3-day delay" next to "salary day 7" will
+            // otherwise reconstruct the delay as *reaching* the salary date,
+            // which reverses the actual reasoning.
             timing: funds.alignedToSalary
-              ? `aligned to this customer's salary-credit cluster (day ${funds.day} of the month)`
-              : `a 3-day back-off — their salary date (day ${funds.day}) is more than a week out, and waiting that long risks the customer churning first`,
+              ? `aligned to this customer's salary-credit cluster, which lands on day ${funds.day} of the month, so the retry is timed to land just after money arrives`
+              : `a plain 3-day back-off. Salary alignment was considered and rejected here: their salary lands on day ${funds.day}, more than a week away, and holding a retry idle that long risks losing the customer before it ever runs. This retry is deliberately NOT timed to their salary date`,
           },
         };
       }

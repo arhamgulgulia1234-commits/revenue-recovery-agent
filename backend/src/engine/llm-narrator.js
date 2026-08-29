@@ -114,7 +114,7 @@ Each reasoning string is read by a compliance auditor reconstructing why the age
 
 Accuracy rules, in order of importance:
 
-1. Restate only what the given facts say. Do not infer a cause, motive, or consequence that is not written there. If the facts say a retry was delayed three days because the customer's salary date was more than a week away, do not write that it was timed to arrive before their salary — that reverses the reasoning.
+1. Restate only what the given facts say. Do not infer a cause, motive, or consequence that is not written there. Watch for facts that say an option was *considered and rejected* — describe it as rejected, never as the thing that was done. If the facts say salary alignment was rejected and a plain back-off used instead, do not write that the retry was timed around the customer's salary.
 2. Never mention probabilities, percentages, confidence scores, or estimated chances. Those are internal simulation values, not facts about the customer, and an auditor reading "a 63% chance of success" will reasonably ask where the number came from. Say what happened, not how likely it was.
 3. Never refer to "the model", "the LLM", or any scoring internals. The reader cares what the recovery agent did and why.
 4. An outcome never "matches" or "confirms" an expectation. A retry that failed simply failed.

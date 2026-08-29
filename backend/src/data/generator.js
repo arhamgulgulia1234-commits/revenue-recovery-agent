@@ -50,13 +50,21 @@ const RELIABILITY = {
 
 const pad = (n, w = 4) => String(n).padStart(w, '0');
 
+/**
+ * `now` anchors every date in the dataset, so the seed alone does not make a run
+ * reproducible — re-seeding an hour later shifts which scheduled interventions
+ * have come due, and the headline recovery rate moves a point or two with it.
+ * Set SEED_NOW to an ISO timestamp to pin it and get byte-identical runs, which
+ * is what you want when a README or a demo script quotes specific numbers.
+ */
 export function generateDataset({
   seed = Number(process.env.SEED) || 20260829,
   customerCount = 60,
   failureCount = 80,
   b2bFailureCount = 15,
-  now = Date.now(),
+  now = process.env.SEED_NOW ? new Date(process.env.SEED_NOW).getTime() : Date.now(),
 } = {}) {
+  if (Number.isNaN(now)) throw new Error(`SEED_NOW is not a valid date: ${process.env.SEED_NOW}`);
   const rand = makeRandom(seed);
 
   const customers = [];

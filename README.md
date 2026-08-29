@@ -145,7 +145,12 @@ Schema: [`backend/src/db/schema.sql`](backend/src/db/schema.sql).
 driven by a **seeded PRNG** — every run generates the identical dataset, so demo
 numbers never move between runs.
 
-Current seed (`SEED=20260829`) yields:
+Dates are anchored to `SEED_NOW` (set in `.env`). Without it they follow the wall
+clock, and the headline recovery rate drifts a point or two between runs as
+scheduled interventions come due — pinning it makes the batch byte-identical,
+which is what you want when a demo quotes specific numbers.
+
+Current seed (`SEED=20260829`, `SEED_NOW=2026-08-29T18:00:00+05:30`) yields:
 
 - 60 customers across consumer / prosumer / SMB / enterprise
 - 76 subscriptions, 27 B2B invoices

@@ -16,7 +16,9 @@ const pct = (n) => (n * 100).toFixed(1) + '%';
 const db = getDb();
 const seed = Number(process.env.SEED) || 20260829;
 const rand = makeRandom(seed + 7);
-const now = Date.now();
+// Must match the seed run's anchor, or cases that were scheduled into the
+// future would be judged against a different present.
+const now = process.env.SEED_NOW ? new Date(process.env.SEED_NOW).getTime() : Date.now();
 
 const existing = db.prepare('SELECT COUNT(*) n FROM recovery_cases').get().n;
 if (existing > 0) {
