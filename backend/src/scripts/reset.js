@@ -1,4 +1,4 @@
-import 'dotenv/config';
+import '../lib/env.js';
 import { resetDb, DB_PATH } from '../db/index.js';
 
 const dropped = resetDb();

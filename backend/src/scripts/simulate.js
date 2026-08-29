@@ -2,7 +2,7 @@
  * Batch run: push every open failure through the recovery agent and report the
  * aggregate numbers. Seeded, so the whole batch is reproducible.
  */
-import 'dotenv/config';
+import '../lib/env.js';
 import { getDb } from '../db/index.js';
 import { makeRandom } from '../lib/rng.js';
 import { createRunner } from '../engine/runner.js';

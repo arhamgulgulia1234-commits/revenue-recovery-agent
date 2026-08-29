@@ -5,7 +5,7 @@
  * the engine's own bookkeeping. If the engine ever drifts from its stated rules,
  * this is what catches it.
  */
-import 'dotenv/config';
+import '../lib/env.js';
 import { getDb } from '../db/index.js';
 import { istHour, formatIst } from '../lib/time.js';
 import { POLICY, isQuietHour } from '../lib/taxonomy.js';

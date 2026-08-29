@@ -4,7 +4,7 @@
  *   npm run score              # priors, example cases, needs-attention, calibration
  *   npm run score -- case_0010 # one specific case, factor by factor
  */
-import 'dotenv/config';
+import '../lib/env.js';
 import { getDb } from '../db/index.js';
 import { buildPriors, buildCustomerHistory } from '../engine/priors.js';
 import { scoreCase, needsAttention, BLEND_WEIGHTS } from '../engine/scorer.js';

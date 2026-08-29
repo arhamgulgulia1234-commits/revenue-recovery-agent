@@ -10,24 +10,64 @@
  * flips reasoning_source to 'llm'. Any case that fails keeps its template text,
  * so a partial run degrades instead of breaking.
  */
-import 'dotenv/config';
+import '../lib/env.js';
 import { getDb } from '../db/index.js';
 import {
   makeClient, buildCasePayload, narrateCase, credentialsPresent,
   SYSTEM_PROMPT, userMessage, MODEL, PROVIDER, DEFAULT_CONCURRENCY,
+  completionBudget, estimateTokens, shapeOf,
 } from '../engine/llm-narrator.js';
 
 const args = process.argv.slice(2);
 const dryRun = args.includes('--dry-run');
 const limitArg = args.indexOf('--limit');
 const limit = limitArg >= 0 ? Number(args[limitArg + 1]) : null;
-const only = args.find((a) => a.startsWith('case_'));
+const only = args.filter((a) => a.startsWith('case_'));
 const CONCURRENCY = Number(process.env.NARRATE_CONCURRENCY) || DEFAULT_CONCURRENCY;
+/** Provider tokens-per-minute ceiling. Groq free tier is 8000 at time of writing. */
+const TPM = Number(process.env.NARRATE_TPM) || (PROVIDER === 'groq' ? 8000 : 0);
+
+/**
+ * Rolling-window token pacer.
+ *
+ * The limit is per minute, so the only way to run the whole batch unattended is
+ * to spend the budget deliberately: track what the last 60 seconds cost, and
+ * wait for room before sending rather than firing and handling the rejection.
+ */
+const spent = [];
+async function reserve(tokens) {
+  if (!TPM) return null;
+  for (;;) {
+    const cutoff = Date.now() - 60_000;
+    while (spent.length && spent[0].at < cutoff) spent.shift();
+    const used = spent.reduce((n, e) => n + e.tokens, 0);
+    if (used + tokens <= TPM * 0.92) break;
+    const waitMs = Math.max(1000, spent[0].at + 60_000 - Date.now() + 250);
+    process.stdout.write('·');
+    await new Promise((r) => setTimeout(r, waitMs));
+  }
+  const entry = { at: Date.now(), tokens };
+  spent.push(entry);
+  return entry;
+}
+
+/**
+ * A reservation has to assume the full completion budget, but most cases use a
+ * fraction of it. Correcting the entry once the real usage is known stops the
+ * window from being held hostage by tokens that were never spent — worth
+ * roughly a third of the wall-clock time over a full batch.
+ */
+function settle(entry, usage) {
+  if (!entry) return;
+  entry.tokens = Math.max(1, (usage?.input ?? 0) + (usage?.output ?? 0));
+}
 
 const db = getDb();
 
 const caseRows = db.prepare(`
-  SELECT * FROM recovery_cases ${only ? 'WHERE id = ?' : ''} ORDER BY id`).all(...(only ? [only] : []));
+  SELECT * FROM recovery_cases
+  ${only.length ? `WHERE id IN (${only.map(() => '?').join(',')})` : ''}
+  ORDER BY id`).all(...only);
 const cases = limit ? caseRows.slice(0, limit) : caseRows;
 
 if (!cases.length) {
@@ -108,7 +148,9 @@ async function withRetry(fn, attempts = 4) {
       return await fn();
     } catch (err) {
       const status = err?.status ?? err?.response?.status;
-      const retryable = status === 429 || (status >= 500 && status < 600);
+      // 413 here is a rate limit dressed as "payload too large" — the request
+      // is fine, the minute's token budget is not.
+      const retryable = status === 429 || status === 413 || (status >= 500 && status < 600);
       if (!retryable || i >= attempts - 1) throw err;
       const headerWait = Number(err?.headers?.['retry-after']) * 1000;
       const wait = Number.isFinite(headerWait) && headerWait > 0
@@ -123,8 +165,21 @@ async function withRetry(fn, attempts = 4) {
 async function runOne(caseRow) {
   const b = bundle(caseRow);
   try {
-    const { parsed, usage } = await withRetry(
-      () => narrateCase(client, buildCasePayload(b)));
+    const payload = buildCasePayload(b);
+    const cost = estimateTokens(SYSTEM_PROMPT + userMessage(payload))
+      + completionBudget(shapeOf(payload));
+
+    const { parsed, usage } = await withRetry(async () => {
+      const entry = await reserve(cost);
+      try {
+        const out = await narrateCase(client, payload);
+        settle(entry, out.usage);
+        return out;
+      } catch (err) {
+        settle(entry, { input: cost, output: 0 }); // a rejected call still cost us nothing
+        throw err;
+      }
+    });
     if (!parsed) throw new Error('structured output did not parse');
 
     const apply = db.transaction(() => {
@@ -168,7 +223,8 @@ async function pool(items, size, fn) {
 }
 
 console.log(`\n  Narrating ${cases.length} cases · ${PROVIDER} · ${MODEL} · ${CONCURRENCY} at a time`);
-console.log('  . ok   ~ rate-limited, retrying   x failed (keeps template text)\n');
+console.log(`  . ok   · waiting for token budget   ~ retrying   x failed (keeps template text)`);
+if (TPM) console.log(`  pacing to ${TPM} tokens/min\n`); else console.log('');
 const started = Date.now();
 await pool(cases, CONCURRENCY, runOne);
 const secs = ((Date.now() - started) / 1000).toFixed(1);

@@ -4,7 +4,7 @@
  *   npm run case              # one example of each interesting shape
  *   npm run case -- case_0007 # a specific case
  */
-import 'dotenv/config';
+import '../lib/env.js';
 import { getDb } from '../db/index.js';
 import { formatIst } from '../lib/time.js';
 import { BUCKETS } from '../engine/classifier.js';

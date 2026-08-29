@@ -39,8 +39,29 @@ export const MERCHANT_NAME = process.env.MERCHANT_NAME || 'Trellis';
 const DEFAULT_MODEL = { groq: 'openai/gpt-oss-120b', anthropic: 'claude-opus-5' };
 export const MODEL = process.env.LLM_MODEL || DEFAULT_MODEL[PROVIDER] || DEFAULT_MODEL.groq;
 
-/** Free tiers are rate limited; fewer in flight beats a wall of 429s. */
-export const DEFAULT_CONCURRENCY = PROVIDER === 'groq' ? 3 : 6;
+/**
+ * Groq's free tier caps tokens per minute, not requests (8k TPM, 1000 RPM at
+ * time of writing). Parallelism cannot buy throughput against a token ceiling —
+ * it only turns a steady stream into bursts that trip the limit — so Groq runs
+ * one at a time and the caller paces by token budget instead.
+ */
+export const DEFAULT_CONCURRENCY = PROVIDER === 'groq' ? 1 : 6;
+
+/**
+ * How many completion tokens this case actually needs.
+ *
+ * A flat ceiling is what broke the first Groq run: the limit counts requested
+ * completion tokens toward the per-minute budget, so asking for 8k on a case
+ * that needs 2k spent the entire minute's allowance before the prompt was even
+ * counted. Size the ask to the work.
+ */
+export function completionBudget({ auditCount, messageCount }) {
+  const estimate = 200 + auditCount * 160 + messageCount * 380;
+  return Math.min(Math.max(estimate, 600), 4000);
+}
+
+/** Rough token count. Only needs to be good enough to pace a rate limiter. */
+export const estimateTokens = (text) => Math.ceil(text.length / 4);
 
 /** Provider-neutral. Groq's strict mode needs every key required and no extras. */
 export const NARRATION_JSON_SCHEMA = {
@@ -89,7 +110,15 @@ Never contradict, second-guess, or propose an alternative to a decision you are 
 
 ## Writing the audit reasoning
 
-Each reasoning string is read by a compliance auditor reconstructing why the agent acted. Write two or three sentences of specific, plain English. Refer to the actual facts of this case — the decline code, the amount, the customer's history, the timing — not generic statements that would fit any case. No jargon, no bullet points, no headings. Do not begin with "This decision" or "The agent".
+Each reasoning string is read by a compliance auditor reconstructing why the agent acted. Write two or three sentences of specific, plain English. Refer to the actual facts of this case — the decline code, the amount, the customer's history, the timing — not generic statements that would fit any case. No jargon, no bullet points, no headings.
+
+Accuracy rules, in order of importance:
+
+1. Restate only what the given facts say. Do not infer a cause, motive, or consequence that is not written there. If the facts say a retry was delayed three days because the customer's salary date was more than a week away, do not write that it was timed to arrive before their salary — that reverses the reasoning.
+2. Never mention probabilities, percentages, confidence scores, or estimated chances. Those are internal simulation values, not facts about the customer, and an auditor reading "a 63% chance of success" will reasonably ask where the number came from. Say what happened, not how likely it was.
+3. Never refer to "the model", "the LLM", or any scoring internals. The reader cares what the recovery agent did and why.
+4. An outcome never "matches" or "confirms" an expectation. A retry that failed simply failed.
+5. Write plainly about what the recovery agent did. Do not open with "This decision" or "The agent".
 
 ## Policy you must reflect accurately
 
@@ -189,6 +218,11 @@ export function buildCasePayload({ caseRow, customer, attempt, subscription, inv
   };
 }
 
+export const shapeOf = (payload) => ({
+  auditCount: payload.audit_entries_to_explain.length,
+  messageCount: payload.interventions_needing_copy.length,
+});
+
 export const userMessage = (payload) =>
   'Explain every decision on this recovery case, and write the outreach copy.\n\n' +
   '```json\n' + JSON.stringify(payload, null, 2) + '\n```';
@@ -205,10 +239,10 @@ export async function narrateCase({ kind, client }, payload) {
 }
 
 async function narrateGroq(client, payload) {
-  const res = await client.chat.completions.create({
+  const request = {
     model: MODEL,
     temperature: 0.4,
-    max_completion_tokens: 8000,
+    max_completion_tokens: completionBudget(shapeOf(payload)),
     messages: [
       { role: 'system', content: SYSTEM_PROMPT },
       { role: 'user', content: userMessage(payload) },
@@ -217,7 +251,12 @@ async function narrateGroq(client, payload) {
       type: 'json_schema',
       json_schema: { name: 'case_narration', strict: true, schema: NARRATION_JSON_SCHEMA },
     },
-  });
+  };
+  // gpt-oss models emit reasoning tokens that also count against the budget.
+  // The decisions are already made; there is nothing here to reason hard about.
+  if (MODEL.startsWith('openai/gpt-oss')) request.reasoning_effort = 'low';
+
+  const res = await client.chat.completions.create(request);
 
   const text = res.choices?.[0]?.message?.content;
   if (!text) throw new Error('empty completion');
@@ -227,7 +266,7 @@ async function narrateGroq(client, payload) {
 async function narrateAnthropic(client, payload) {
   const res = await client.messages.create({
     model: MODEL,
-    max_tokens: 8000,
+    max_tokens: completionBudget(shapeOf(payload)),
     thinking: { type: 'adaptive' },
     system: [{ type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
     messages: [{ role: 'user', content: userMessage(payload) }],

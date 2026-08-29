@@ -3,7 +3,7 @@
  * Does NOT open recovery cases — that is the decision engine's job
  * (`npm run simulate`), so detection stays auditable and re-runnable.
  */
-import 'dotenv/config';
+import '../lib/env.js';
 import { getDb } from '../db/index.js';
 import { generateDataset, summarize } from '../data/generator.js';
 

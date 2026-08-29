@@ -1,4 +1,4 @@
-import 'dotenv/config';
+import './lib/env.js';
 import express from 'express';
 import cors from 'cors';
 import { getDb, DB_PATH } from './db/index.js';
