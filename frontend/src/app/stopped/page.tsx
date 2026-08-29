@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { ClickableRow } from '@/components/ClickableRow';
 import {
   api, inr, inrCompact, istDateTime,
   ROOT_CAUSE_LABELS, CLOSURE_LABELS, SEGMENT_LABELS,
@@ -104,7 +105,11 @@ function Section({
           </thead>
           <tbody>
             {group.cases.map((c) => (
-              <tr key={c.id} className="border-b border-border/60 last:border-0 hover:bg-card/70 transition-colors">
+              <ClickableRow
+                key={c.id}
+                href={`/cases/${c.id}`}
+                className="border-b border-border/60 last:border-0 hover:bg-card/70 transition-colors"
+              >
                 <td className="py-2 px-3">
                   <Link href={`/cases/${c.id}`} className="font-medium hover:underline">
                     {c.customer_name}
@@ -123,7 +128,7 @@ function Section({
                   {CLOSURE_LABELS[c.closure_reason] ?? c.closure_reason}
                   <span className="block text-xs text-muted">{nuance(c)}</span>
                 </td>
-              </tr>
+              </ClickableRow>
             ))}
           </tbody>
         </table>

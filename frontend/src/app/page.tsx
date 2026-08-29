@@ -4,6 +4,7 @@ import {
   type CaseStatus, type Insights, type AttentionCase,
 } from '@/lib/api';
 import { RateBars, ScoreBadge } from '@/components/RateBars';
+import { ClickableRow } from '@/components/ClickableRow';
 import Link from 'next/link';
 
 export const dynamic = 'force-dynamic';
@@ -122,7 +123,11 @@ export default async function Page() {
               </thead>
               <tbody>
                 {attention.map((c) => (
-                  <tr key={c.id} className="border-b border-border/60 last:border-0 align-top">
+                  <ClickableRow
+                    key={c.id}
+                    href={`/cases/${c.id}`}
+                    className="border-b border-border/60 last:border-0 align-top hover:bg-card/70 transition-colors"
+                  >
                     <td className="py-2 px-3 font-mono text-xs">
                       <Link href={`/cases/${c.id}`} className="text-muted hover:text-foreground hover:underline">
                         {c.id}
@@ -147,7 +152,7 @@ export default async function Page() {
                         ? CLOSURE_LABELS[c.closure_reason ?? ''] ?? c.closure_reason
                         : `Still running, ${c.attempts_used}/3 attempts used`}
                     </td>
-                  </tr>
+                  </ClickableRow>
                 ))}
               </tbody>
             </table>
@@ -273,8 +278,9 @@ export default async function Page() {
             </thead>
             <tbody>
               {failures.map((f) => (
-                <tr
+                <ClickableRow
                   key={f.id}
+                  href={f.case_id ? `/cases/${f.case_id}` : '#'}
                   className="border-b border-border/60 last:border-0 hover:bg-card/70 transition-colors"
                 >
                   <td className="py-2 px-3">
@@ -320,7 +326,7 @@ export default async function Page() {
                   <td className="py-2 px-3 text-muted whitespace-nowrap">
                     {istDateTime(f.created_at)}
                   </td>
-                </tr>
+                </ClickableRow>
               ))}
             </tbody>
           </table>
