@@ -1,7 +1,9 @@
 import {
   api, inr, inrCompact, istDateTime,
-  DECLINE_LABELS, ROOT_CAUSE_LABELS, CLOSURE_LABELS, STATUS_DISPLAY, type CaseStatus,
+  DECLINE_LABELS, ROOT_CAUSE_LABELS, CLOSURE_LABELS, STATUS_DISPLAY, SEGMENT_LABELS,
+  type CaseStatus, type Insights, type AttentionCase,
 } from '@/lib/api';
+import { RateBars, ScoreBadge } from '@/components/RateBars';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,14 +31,17 @@ type Failure = {
   opted_out_at: string | null; disputed_at: string | null;
   case_id: string | null; case_status: CaseStatus | null; root_cause: string | null;
   attempts_used: number | null; closure_reason: string | null;
+  recovery_score?: number; score_band?: string; score_explanation?: string;
 };
 
 export default async function Page() {
-  let stats: Stats, failures: Failure[];
+  let stats: Stats, failures: Failure[], insights: Insights, attention: AttentionCase[];
   try {
-    [stats, { failures }] = await Promise.all([
+    [stats, { failures }, insights, { cases: attention }] = await Promise.all([
       api<Stats>('/api/portfolio/stats'),
       api<{ failures: Failure[] }>('/api/portfolio/failures?limit=100'),
+      api<Insights>('/api/insights'),
+      api<{ cases: AttentionCase[] }>('/api/insights/needs-attention?limit=8'),
     ]);
   } catch {
     return <Offline />;
@@ -89,6 +94,99 @@ export default async function Page() {
           </div>
         )}
       </section>
+
+      {hasRun && attention.length > 0 && (
+        <section>
+          <h2 className="text-sm font-semibold">
+            Needs attention
+            <span className="font-normal text-muted"> — a human should probably step in</span>
+          </h2>
+          <p className="text-xs text-muted mt-1 mb-3">
+            Unrecovered cases ranked by expected loss (amount at risk × chance we lose it).
+            Includes cases the agent stopped at the attempt cap — that hand-off is the point
+            of the cap. Opted-out and disputed customers are excluded, because a human may
+            not contact them either.
+          </p>
+          <div className="overflow-x-auto rounded-lg border border-border">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-muted text-left bg-card border-b border-border">
+                  <th className="py-2 px-3 font-medium">Case</th>
+                  <th className="py-2 px-3 font-medium">Customer</th>
+                  <th className="py-2 px-3 font-medium text-right">At risk</th>
+                  <th className="py-2 px-3 font-medium text-center">Likelihood</th>
+                  <th className="py-2 px-3 font-medium text-right">Expected loss</th>
+                  <th className="py-2 px-3 font-medium">Why it is here</th>
+                </tr>
+              </thead>
+              <tbody>
+                {attention.map((c) => (
+                  <tr key={c.id} className="border-b border-border/60 last:border-0 align-top">
+                    <td className="py-2 px-3 font-mono text-xs text-muted">{c.id}</td>
+                    <td className="py-2 px-3">
+                      <span className="font-medium">{c.customer_name}</span>
+                      <span className="block text-xs text-muted">
+                        {SEGMENT_LABELS[c.segment] ?? c.segment} ·{' '}
+                        {ROOT_CAUSE_LABELS[c.root_cause] ?? c.root_cause}
+                      </span>
+                    </td>
+                    <td className="py-2 px-3 text-right tabular-nums">{inr(c.amount_at_risk_inr)}</td>
+                    <td className="py-2 px-3 text-center">
+                      <ScoreBadge score={c.recovery_score} band={c.score_band} />
+                    </td>
+                    <td className="py-2 px-3 text-right tabular-nums font-medium">
+                      {inr(c.expectedLoss)}
+                    </td>
+                    <td className="py-2 px-3 text-xs text-muted max-w-xs">
+                      {c.status === 'stopped'
+                        ? CLOSURE_LABELS[c.closure_reason ?? ''] ?? c.closure_reason
+                        : `Still running, ${c.attempts_used}/3 attempts used`}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {hasRun && (
+        <section>
+          <h2 className="text-sm font-semibold">Patterns behind the score</h2>
+          <p className="text-xs text-muted mt-1 mb-4">
+            Recovery rates counted off {insights.sampleSize} actionable cases
+            ({insights.excluded} excluded — the agent was never allowed to act on them).
+            Rates are smoothed toward the {(insights.globalRate * 100).toFixed(0)}% global
+            average with {insights.smoothing} pseudo-observations, so a small bucket cannot
+            swing a score. The blend is {insights.weights.rootCause} root cause ·{' '}
+            {insights.weights.attempt} attempts · {insights.weights.segment} segment.
+          </p>
+          <div className="grid md:grid-cols-3 gap-8 rounded-lg border border-border bg-card p-5">
+            <RateBars
+              title="By root cause"
+              rows={insights.byRootCause.map((r) => ({
+                label: ROOT_CAUSE_LABELS[r.key] ?? r.key, rate: r.rate, n: r.n,
+              }))}
+            />
+            <RateBars
+              title="By customer segment"
+              rows={insights.bySegment.map((r) => ({
+                label: SEGMENT_LABELS[r.key] ?? r.key, rate: r.rate, n: r.n,
+              }))}
+            />
+            <RateBars
+              title="By attempts already failed"
+              note="Each failed try is real evidence the case is hard."
+              rows={insights.byAttempt.map((r) => ({
+                label: r.failedAttempts === 0
+                  ? 'Nothing tried yet'
+                  : `${r.failedAttempts} attempt${r.failedAttempts === 1 ? '' : 's'} failed`,
+                rate: r.rate, n: r.n,
+              }))}
+            />
+          </div>
+        </section>
+      )}
 
       {hasRun && (
         <section className="grid md:grid-cols-2 gap-8">
@@ -163,6 +261,7 @@ export default async function Page() {
                 <th className="py-2 px-3 font-medium">Decline</th>
                 <th className="py-2 px-3 font-medium">Diagnosis</th>
                 <th className="py-2 px-3 font-medium text-right">Amount</th>
+                <th className="py-2 px-3 font-medium text-center">Likelihood</th>
                 <th className="py-2 px-3 font-medium">Status</th>
                 <th className="py-2 px-3 font-medium">Failed at (IST)</th>
               </tr>
@@ -185,6 +284,15 @@ export default async function Page() {
                     {f.root_cause ? ROOT_CAUSE_LABELS[f.root_cause] : '—'}
                   </td>
                   <td className="py-2 px-3 text-right tabular-nums">{inr(f.amount_inr)}</td>
+                  <td className="py-2 px-3 text-center whitespace-nowrap">
+                    {f.recovery_score != null && f.score_band ? (
+                      <span title={f.score_explanation}>
+                        <ScoreBadge score={f.recovery_score} band={f.score_band} />
+                      </span>
+                    ) : (
+                      <span className="text-muted text-xs">—</span>
+                    )}
+                  </td>
                   <td className="py-2 px-3 whitespace-nowrap">
                     <StatusBadge status={f.case_status} />
                     {f.case_status && (

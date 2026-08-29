@@ -66,3 +66,30 @@ export const STATUS_DISPLAY: Record<CaseStatus, { label: string; className: stri
   promise_to_pay: { label: 'Promised',  className: 'bg-sky-500/10 text-sky-600 dark:text-sky-400' },
   stopped:        { label: 'Stopped',   className: 'bg-stone-500/10 text-stone-600 dark:text-stone-400' },
 };
+
+export const SEGMENT_LABELS: Record<string, string> = {
+  consumer: 'Consumer', prosumer: 'Prosumer', smb: 'SMB', enterprise: 'Enterprise',
+};
+
+export const SCORE_BAND_STYLES: Record<string, string> = {
+  High:   'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+  Medium: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+  Low:    'bg-rose-500/10 text-rose-600 dark:text-rose-400',
+};
+
+export type Insights = {
+  globalRate: number; sampleSize: number; settled: number; excluded: number;
+  smoothing: number;
+  weights: { rootCause: number; attempt: number; segment: number };
+  byRootCause: { key: string; rate: number; raw: number; n: number }[];
+  bySegment: { key: string; rate: number; raw: number; n: number }[];
+  byAttempt: { failedAttempts: number; rate: number; raw: number | null; n: number }[];
+};
+
+export type AttentionCase = {
+  id: string; customer_name: string; segment: string; amount_at_risk_inr: number;
+  recovery_score: number; score_band: string; score_explanation: string;
+  expectedLoss: number; status: string; closure_reason: string | null;
+  attempts_used: number; root_cause: string; plan_name: string | null;
+  invoice_number: string | null;
+};
