@@ -14,6 +14,8 @@
     "score": "node src/scripts/score.js",
     "narrate": "node src/scripts/narrate.js",
     "compare": "node src/scripts/compare.js",
+    "narrate:export": "node src/scripts/narration-export.js",
+    "narrate:apply": "node src/scripts/narration-apply.js",
     "reset": "node src/scripts/reset.js"
   },
   "dependencies": {

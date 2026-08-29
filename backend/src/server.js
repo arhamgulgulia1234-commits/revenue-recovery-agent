@@ -9,7 +9,29 @@ import { insightsRouter } from './routes/insights.js';
 import { comparisonRouter } from './routes/comparison.js';
 
 const app = express();
-app.use(cors());
+
+/**
+ * In development anything on localhost may call the API. In production only the
+ * deployed frontend may — ALLOWED_ORIGINS is a comma-separated list. Leaving
+ * cors() wide open on a public URL would let any site call this API and read the
+ * data back, which is not something to ship by accident.
+ */
+const allowed = (process.env.ALLOWED_ORIGINS || '')
+  .split(',').map((s) => s.trim()).filter(Boolean);
+
+app.use(cors({
+  origin(origin, cb) {
+    if (!origin) return cb(null, true);              // curl, server-side fetch, health checks
+    if (!allowed.length) return cb(null, true);      // unset: local dev
+    if (allowed.includes(origin)) return cb(null, true);
+    // Vercel gives every preview deploy its own subdomain; allow them when the
+    // production domain is already trusted.
+    if (allowed.some((a) => a.endsWith('.vercel.app')) && /^https:\/\/[\w-]+\.vercel\.app$/.test(origin)) {
+      return cb(null, true);
+    }
+    return cb(new Error(`Origin not allowed: ${origin}`));
+  },
+}));
 app.use(express.json());
 
 app.get('/health', (req, res) => {
@@ -29,8 +51,10 @@ app.use((err, req, res, _next) => {
   res.status(500).json({ error: 'internal_error', message: err.message });
 });
 
+// Render (and most PaaS) inject PORT and require binding on 0.0.0.0.
 const port = Number(process.env.PORT) || 4000;
-app.listen(port, () => {
-  console.log(`  API listening on http://localhost:${port}`);
+app.listen(port, '0.0.0.0', () => {
+  console.log(`  API listening on port ${port}`);
   console.log(`  DB ${DB_PATH}`);
+  console.log(`  CORS: ${allowed.length ? allowed.join(', ') : 'open (development)'}`);
 });

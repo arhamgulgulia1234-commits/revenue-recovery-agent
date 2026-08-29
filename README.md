@@ -42,7 +42,7 @@ npm run demo      # reset + seed the synthetic book
 npm run dev       # backend :4000 + frontend :3000
 ```
 
-Open <http://localhost:3000>.
+Open <http://localhost:3000>. To deploy, see **[DEPLOY.md](DEPLOY.md)**.
 
 | Script | What it does |
 |---|---|
@@ -53,6 +53,8 @@ Open <http://localhost:3000>.
 | `npm run case` | Print full decision histories for a few representative cases |
 | `npm run score` | Inspect the priors, example scores, needs-attention list and calibration |
 | `npm run narrate` | Rewrite the reasoning and message copy with an LLM (`-- --dry-run` to preview the prompt) |
+| `npm run narrate:export` | Freeze the narration to `narration.json` so deploys get it without API calls |
+| `npm run compare` | Side-by-side against the naive blind-retry baseline |
 | `npm run demo` | `reset` + `seed` + `simulate` + `verify` — a clean run from scratch |
 
 Copy `.env.example` to `.env` and set `GROQ_API_KEY` (free at
@@ -297,4 +299,5 @@ It is also in-sample — at 80 cases there is no held-out set.
 - [x] LLM narrator (Groq or Anthropic) as a second pass over decided cases
 - [x] Case timeline drill-down with the full decision story
 - [ ] Dedicated stopped-case compliance view
-- [ ] Deploy to Render
+- [x] Naive baseline comparison (46.3% vs 32.5%)
+- [ ] Deploy — see [DEPLOY.md](DEPLOY.md)
