@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { getDb } from '../db/index.js';
+import { scoreCases } from '../engine/score-service.js';
 
 export const casesRouter = Router();
 
@@ -42,13 +43,46 @@ casesRouter.get('/:id', (req, res) => {
 
   if (!c) return res.status(404).json({ error: 'case_not_found', id: req.params.id });
 
+  const interventions = db.prepare(
+    'SELECT * FROM intervention_logs WHERE case_id = ? ORDER BY sequence').all(c.id);
+  const audit = db.prepare(
+    'SELECT * FROM audit_entries WHERE case_id = ? ORDER BY sequence').all(c.id);
+  const promises = db.prepare(
+    'SELECT * FROM promises_to_pay WHERE case_id = ? ORDER BY created_at').all(c.id);
+
+  const [scored] = scoreCases(db, [c]).scored;
+
   res.json({
-    case: c,
-    interventions: db.prepare(
-      'SELECT * FROM intervention_logs WHERE case_id = ? ORDER BY sequence').all(c.id),
-    audit: db.prepare(
-      'SELECT * FROM audit_entries WHERE case_id = ? ORDER BY sequence').all(c.id),
-    promises: db.prepare(
-      'SELECT * FROM promises_to_pay WHERE case_id = ? ORDER BY created_at').all(c.id),
+    case: { ...c, recovery_score: scored.recovery_score, score_band: scored.score_band,
+            score_explanation: scored.score_explanation },
+    interventions,
+    audit,
+    promises,
+    timeline: buildTimeline(audit, interventions),
   });
 });
+
+/**
+ * Stitch the audit trail and the intervention log into one ordered story.
+ *
+ * The runner emits exactly one `intervention_selected` entry per intervention,
+ * in order, so the Nth such entry is intervention sequence N — that pairing is
+ * done here rather than in the UI, where a mismatch would be invisible.
+ */
+function buildTimeline(audit, interventions) {
+  const bySequence = new Map(interventions.map((i) => [i.sequence, i]));
+  let selected = 0;
+  let current = null;
+
+  return audit.map((a) => {
+    if (a.event_type === 'intervention_selected') {
+      selected += 1;
+      current = bySequence.get(selected) ?? null;
+      return { ...a, intervention: current, attemptNumber: selected };
+    }
+    if (a.event_type === 'outcome_recorded') {
+      return { ...a, intervention: current, attemptNumber: selected };
+    }
+    return { ...a, intervention: null, attemptNumber: null };
+  });
+}
