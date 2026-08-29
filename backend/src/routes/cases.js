@@ -25,6 +25,55 @@ casesRouter.get('/', (req, res) => {
   res.json({ count: rows.length, cases: rows });
 });
 
+/**
+ * Cases the agent deliberately stopped, split by *why*.
+ *
+ * The two groups are different stories and are kept apart on purpose: one is
+ * the agent respecting a customer who asked not to be contacted, the other is a
+ * policy ceiling on how hard it may push. Lumping them together would read as
+ * one pile of failures, which is the opposite of what they show.
+ *
+ * Declared before '/:id' — Express matches in order, and otherwise "stopped"
+ * arrives as a case id.
+ */
+casesRouter.get('/stopped', (req, res) => {
+  const rows = getDb().prepare(`
+    SELECT rc.id, rc.customer_id, rc.root_cause, rc.amount_at_risk_inr, rc.attempts_used,
+           rc.closure_reason, rc.opened_at, rc.closed_at,
+           c.name AS customer_name, c.segment, c.opted_out_at, c.disputed_at,
+           p.decline_code, s.plan_name, i.invoice_number
+    FROM recovery_cases rc
+    JOIN customers c ON c.id = rc.customer_id
+    JOIN payment_attempts p ON p.id = rc.payment_attempt_id
+    LEFT JOIN subscriptions s ON s.id = p.subscription_id
+    LEFT JOIN invoices i ON i.id = p.invoice_id
+    WHERE rc.status = 'stopped'
+    ORDER BY rc.amount_at_risk_inr DESC`).all();
+
+  const HARD_STOP = new Set([
+    'customer_opted_out', 'customer_disputed',
+    'opted_out_mid_recovery', 'disputed_mid_recovery',
+  ]);
+
+  const group = (predicate) => {
+    const cases = rows.filter((r) => predicate(r.closure_reason));
+    return {
+      cases,
+      count: cases.length,
+      totalInr: cases.reduce((n, r) => n + r.amount_at_risk_inr, 0),
+    };
+  };
+
+  const respected = group((r) => HARD_STOP.has(r));
+  const capped = group((r) => !HARD_STOP.has(r));
+
+  res.json({
+    total: { count: rows.length, totalInr: respected.totalInr + capped.totalInr },
+    respected,
+    capped,
+  });
+});
+
 /** Full decision history for one case: interventions and audit trail, in order. */
 casesRouter.get('/:id', (req, res) => {
   const db = getDb();
