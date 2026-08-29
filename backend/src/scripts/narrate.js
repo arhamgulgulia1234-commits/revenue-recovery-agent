@@ -137,6 +137,7 @@ const updateLog = db.prepare(
 const client = await makeClient();
 const stats = { ok: 0, failed: 0, audit: 0, messages: 0, inTok: 0, outTok: 0, cacheRead: 0 };
 const failures = [];
+let dailyLimitHit = false;
 
 /**
  * Free tiers rate limit hard. A 429 is a "come back later", not a failure —
@@ -148,6 +149,15 @@ async function withRetry(fn, attempts = 4) {
       return await fn();
     } catch (err) {
       const status = err?.status ?? err?.response?.status;
+
+      // A per-DAY limit is not something backoff can fix — the reset is hours
+      // away, not seconds. Fail fast with a clear message instead of spending
+      // four retries discovering the same thing.
+      if (/tokens per day|TPD/i.test(err?.message ?? '')) {
+        dailyLimitHit = true;
+        throw new Error('daily token limit reached — resets in ~24h, re-run then');
+      }
+
       // 413 here is a rate limit dressed as "payload too large" — the request
       // is fine, the minute's token budget is not.
       const retryable = status === 429 || status === 413 || (status >= 500 && status < 600);
@@ -234,7 +244,12 @@ console.log(`  ${stats.audit} reasoning strings, ${stats.messages} messages rewr
 console.log(`  tokens: ${stats.inTok} in${stats.cacheRead ? ` (${stats.cacheRead} from cache)` : ''}, ${stats.outTok} out`);
 if (failures.length) {
   console.log('\n  Failures (these cases kept their template text):');
-  for (const f of failures.slice(0, 10)) console.log(`    ${f}`);
+  for (const f of failures.slice(0, 10)) console.log(`    ${f.slice(0, 160)}`);
+  if (dailyLimitHit) {
+    const ids = failures.map((f) => f.split(':')[0]).join(' ');
+    console.log('\n  The provider daily token limit was reached. Re-run just these once it resets:');
+    console.log(`    npm run narrate -- ${ids}`);
+  }
 }
 const bySource = db.prepare(
   'SELECT reasoning_source, COUNT(*) n FROM audit_entries GROUP BY reasoning_source').all();
