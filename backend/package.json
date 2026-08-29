@@ -11,6 +11,7 @@
     "simulate": "node src/scripts/simulate.js",
     "verify": "node src/scripts/verify.js",
     "case": "node src/scripts/show-case.js",
+    "score": "node src/scripts/score.js",
     "reset": "node src/scripts/reset.js"
   },
   "dependencies": {
