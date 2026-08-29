@@ -13,6 +13,7 @@
     "case": "node src/scripts/show-case.js",
     "score": "node src/scripts/score.js",
     "narrate": "node src/scripts/narrate.js",
+    "compare": "node src/scripts/compare.js",
     "reset": "node src/scripts/reset.js"
   },
   "dependencies": {

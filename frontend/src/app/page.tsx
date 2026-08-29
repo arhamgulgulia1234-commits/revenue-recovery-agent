@@ -5,6 +5,7 @@ import {
 } from '@/lib/api';
 import { RateBars, ScoreBadge } from '@/components/RateBars';
 import { ClickableRow } from '@/components/ClickableRow';
+import { Comparison, type ComparisonData } from '@/components/Comparison';
 import Link from 'next/link';
 
 export const dynamic = 'force-dynamic';
@@ -38,12 +39,14 @@ type Failure = {
 
 export default async function Page() {
   let stats: Stats, failures: Failure[], insights: Insights, attention: AttentionCase[];
+  let comparison: ComparisonData;
   try {
-    [stats, { failures }, insights, { cases: attention }] = await Promise.all([
+    [stats, { failures }, insights, { cases: attention }, comparison] = await Promise.all([
       api<Stats>('/api/portfolio/stats'),
       api<{ failures: Failure[] }>('/api/portfolio/failures?limit=100'),
       api<Insights>('/api/insights'),
       api<{ cases: AttentionCase[] }>('/api/insights/needs-attention?limit=8'),
+      api<ComparisonData>('/api/comparison'),
     ]);
   } catch {
     return <Offline />;
@@ -96,6 +99,8 @@ export default async function Page() {
           </div>
         )}
       </section>
+
+      {hasRun && <Comparison data={comparison} />}
 
       {hasRun && attention.length > 0 && (
         <section>
