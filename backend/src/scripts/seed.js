@@ -75,4 +75,4 @@ console.log('\n  Case types');
 for (const [type, n] of Object.entries(s.byType)) console.log(`    ${type.padEnd(22)} ${n}`);
 
 console.log(`\n  Hard stops pre-set: ${s.optedOut} opted out, ${s.disputed} disputed`);
-console.log('  Next: npm run simulate\n');
+console.log('  Next: build the decision engine\n');

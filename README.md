@@ -19,7 +19,7 @@ Two workspaces rather than a single Next.js app with API routes:
 | `backend/` | Express 5 + SQLite (`better-sqlite3`). The recovery engine, the data model, the batch simulator. |
 | `frontend/` | Next.js 16 (App Router) + React 19 + Tailwind v4. The dashboard. |
 
-**Why this split.** The engine has to run *headless* — `npm run simulate` pushes
+**Why this split.** The engine has to run *headless* — a batch run pushes
 the whole synthetic book through detection → diagnosis → intervention → outcome
 in one batch, with no browser involved. That is the demo, and it is also how the
 numbers get sanity-checked. Wrapping that in Next.js API routes would have meant
@@ -38,7 +38,7 @@ first run. No external service, nothing to provision — it runs fully offline.
 
 ```bash
 npm install
-npm run demo      # reset + seed the synthetic book (+ run the engine, once built)
+npm run demo      # reset + seed the synthetic book
 npm run dev       # backend :4000 + frontend :3000
 ```
 
@@ -49,8 +49,7 @@ Open <http://localhost:3000>.
 | `npm run dev` | Backend and frontend together |
 | `npm run seed` | Generate the synthetic at-risk book (~80 failures) |
 | `npm run reset` | Drop and recreate every table |
-| `npm run simulate` | Run the recovery engine over all open failures |
-| `npm run demo` | `reset` + `seed` + `simulate` — a clean demo from scratch |
+| `npm run demo` | `reset` + `seed` — a clean book from scratch |
 
 Copy `.env.example` to `.env` to set `ANTHROPIC_API_KEY`. The engine falls back
 to deterministic templates when it is unset, so the demo always runs.

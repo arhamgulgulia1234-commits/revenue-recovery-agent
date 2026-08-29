@@ -8,7 +8,6 @@
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
     "seed": "node src/scripts/seed.js",
-    "simulate": "node src/scripts/simulate.js",
     "reset": "node src/scripts/reset.js"
   },
   "dependencies": {
