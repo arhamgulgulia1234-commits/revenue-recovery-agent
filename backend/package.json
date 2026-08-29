@@ -8,6 +8,9 @@
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
     "seed": "node src/scripts/seed.js",
+    "simulate": "node src/scripts/simulate.js",
+    "verify": "node src/scripts/verify.js",
+    "case": "node src/scripts/show-case.js",
     "reset": "node src/scripts/reset.js"
   },
   "dependencies": {
