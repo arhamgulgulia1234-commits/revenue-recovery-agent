@@ -49,7 +49,9 @@ Open <http://localhost:3000>.
 | `npm run dev` | Backend and frontend together |
 | `npm run seed` | Generate the synthetic at-risk book (~80 failures) |
 | `npm run reset` | Drop and recreate every table |
-| `npm run demo` | `reset` + `seed` — a clean book from scratch |
+| `npm run verify` | Independently re-check every compliance rule against stored rows |
+| `npm run case` | Print full decision histories for a few representative cases |
+| `npm run demo` | `reset` + `seed` + `simulate` + `verify` — a clean run from scratch |
 
 Copy `.env.example` to `.env` to set `ANTHROPIC_API_KEY`. The engine falls back
 to deterministic templates when it is unset, so the demo always runs.
@@ -158,12 +160,67 @@ invoice_overdue         15  ███████████
 
 ---
 
+## Results
+
+A full batch over the 80-case book (`SEED=20260829`):
+
+```
+Revenue at risk       ₹81,91,320
+Revenue recovered     ₹22,45,150
+Recovery rate         46.3% of cases · 27.4% of value
+Avg days to recovery  3.0
+
+Recovered  37    Still retrying  15    Stopped  28
+```
+
+Recovery rate by root cause:
+
+| Root cause | Cases | Recovered | Rate |
+|---|---|---|---|
+| User input error | 15 | 10 | 67% |
+| Bank-side block | 14 | 7 | 50% |
+| Timing issue | 13 | 6 | 46% |
+| Transient | 8 | 5 | 63% |
+| Instrument issue | 8 | 3 | 38% |
+| Drop-off | 7 | 2 | 29% |
+| Receivable | 15 | 4 | 27% |
+
+Value recovery (27%) sits well below case recovery (46%) because the large
+enterprise invoices are the hardest to collect — they land on email, they need a
+human approval chain, and five of them belong to customers the agent is forbidden
+to contact. That gap is the honest shape of the problem, not a bug.
+
+### Verified, not asserted
+
+`npm run verify` re-derives every compliance claim straight from the stored rows
+rather than trusting the engine's own bookkeeping:
+
+```
+✓ No case exceeds the 3-attempt cap
+✓ attempts_used matches executed interventions on every case
+✓ No intervention executed after a customer opted out or disputed
+✓ Every case on a hard-stopped customer is closed
+✓ No outreach sent during quiet hours (9:00 PM – 8:00 AM IST)
+✓ Every stopped case has a closure reason
+✓ Every stopped case has a case_stopped audit entry
+✓ Every case has a root cause
+✓ Every executed intervention has an outcome audit entry
+✓ Every audit entry carries real reasoning text
+✓ Recovered amounts are consistent with case status
+✓ Silent retries send no message
+```
+
+---
+
 ## Status
 
 - [x] Project scaffold, SQLite schema, dev scripts
 - [x] Synthetic data generator + seeded, reproducible dataset
-- [x] Portfolio API + at-risk dashboard view
-- [ ] Decision engine — classifier, intervention matrix, stopping rules, outcome simulator
-- [ ] LLM audit reasoning + outreach copy generation
-- [ ] Case list, case timeline, and stopped-case compliance views
-- [ ] Full batch run, targeting a realistic 35–55% recovery rate
+- [x] Decision engine — classifier, intervention matrix, stopping rules, outcome simulator
+- [x] Audit trail with plain-English reasoning on every decision
+- [x] Outreach copy per channel and tone
+- [x] Recovery dashboard: at risk vs recovered, recovery rate, per-case status
+- [x] Independent compliance verifier
+- [ ] Swap the template narrator for Claude (interface is in place; needs `ANTHROPIC_API_KEY`)
+- [ ] Case list and case-timeline drill-down UI
+- [ ] Dedicated stopped-case compliance view
