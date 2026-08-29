@@ -4,6 +4,7 @@ import {
   type CaseStatus, type Insights, type AttentionCase,
 } from '@/lib/api';
 import { RateBars, ScoreBadge } from '@/components/RateBars';
+import Link from 'next/link';
 
 export const dynamic = 'force-dynamic';
 
@@ -122,7 +123,11 @@ export default async function Page() {
               <tbody>
                 {attention.map((c) => (
                   <tr key={c.id} className="border-b border-border/60 last:border-0 align-top">
-                    <td className="py-2 px-3 font-mono text-xs text-muted">{c.id}</td>
+                    <td className="py-2 px-3 font-mono text-xs">
+                      <Link href={`/cases/${c.id}`} className="text-muted hover:text-foreground hover:underline">
+                        {c.id}
+                      </Link>
+                    </td>
                     <td className="py-2 px-3">
                       <span className="font-medium">{c.customer_name}</span>
                       <span className="block text-xs text-muted">
@@ -268,9 +273,18 @@ export default async function Page() {
             </thead>
             <tbody>
               {failures.map((f) => (
-                <tr key={f.id} className="border-b border-border/60 last:border-0">
+                <tr
+                  key={f.id}
+                  className="border-b border-border/60 last:border-0 hover:bg-card/70 transition-colors"
+                >
                   <td className="py-2 px-3">
-                    <span className="font-medium">{f.customer_name}</span>
+                    {f.case_id ? (
+                      <Link href={`/cases/${f.case_id}`} className="font-medium hover:underline">
+                        {f.customer_name}
+                      </Link>
+                    ) : (
+                      <span className="font-medium">{f.customer_name}</span>
+                    )}
                     {(f.opted_out_at || f.disputed_at) && (
                       <span className="ml-2 text-[10px] uppercase tracking-wide rounded px-1.5 py-0.5 bg-red-500/10 text-red-500">
                         {f.disputed_at ? 'disputed' : 'opted out'}
