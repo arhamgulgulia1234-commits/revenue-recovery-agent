@@ -18,7 +18,7 @@ import { configSummary } from '../lib/twilio.js';
 import { maskPhone } from '../lib/phone.js';
 import { DECLINE_CODES, POLICY } from '../lib/taxonomy.js';
 import { BUCKET_BY_CODE } from '../engine/classifier.js';
-import { formatIst } from '../lib/time.js';
+import { formatIst, iso } from '../lib/time.js';
 
 export const liveRouter = Router();
 
@@ -35,6 +35,22 @@ liveRouter.get('/config', (req, res) => {
     twilio,
     segments: LIVE_SEGMENTS,
     responseWindowDays: POLICY.RESPONSE_WINDOW_DAYS,
+    /**
+     * How a live case treats time. Stated here because it is the difference
+     * between this and /api/simulate, and the difference is easy to assume
+     * wrongly in either direction.
+     */
+    timing: {
+      realTime: true,
+      note: 'A live case is never back-dated. The failure carries the current timestamp and every '
+          + 'response window is genuine elapsed time — the case waits real days for a real reply.',
+      sendFirstMessageNow: {
+        default: false,
+        effect: 'Pulls only the first outreach forward to now, so a test message arrives immediately '
+              + 'instead of when the matrix scheduled it. Later attempts and all response windows stay '
+              + 'real. Quiet hours still apply, and the override is written to the audit trail.',
+      },
+    },
     // Which decline codes open with a message a human will actually receive,
     // rather than a silent gateway retry. Worth knowing before picking one for
     // a test: 'transient' codes correctly retry in silence and send nothing.
@@ -105,9 +121,29 @@ liveRouter.post('/cases', async (req, res, next) => {
       amountInr: caseRow.amount_at_risk_inr,
       contactPhone: caseRow.contact_phone,
       openedAt: caseRow.opened_at,
-      // Said plainly rather than left for someone to notice: the failure is
-      // dated in the past on purpose, so the first action is due now.
-      backdatedByHours: Math.round(opened.backdatedBy / 3600000),
+      /**
+       * Timing, stated plainly, because this is the thing most easily
+       * misunderstood about a live case. `realTime: true` always — the failure
+       * carries the actual current timestamp and every response window is
+       * genuine elapsed time. `expedited` says whether the first outreach was
+       * pulled forward to now, and `matrixWouldHaveSent` says when it would
+       * otherwise have gone, so the override is never invisible.
+       */
+      timing: {
+        realTime: true,
+        expedited: opened.expedited,
+        matrixWouldHaveSent: opened.firstActionForecast
+          ? {
+            actionType: opened.firstActionForecast.actionType,
+            at: iso(opened.firstActionForecast.scheduledFor),
+            atLabel: formatIst(opened.firstActionForecast.scheduledFor),
+            delayHours: Math.round(opened.firstActionForecast.delayMs / 360000) / 10,
+          }
+          : null,
+        note: opened.expedited
+          ? 'First outreach expedited to now. Every later attempt and every response window is real elapsed time.'
+          : 'No timestamps altered. The first outreach goes out when the matrix scheduled it.',
+      },
       nextActionAt: caseRow.next_action_at,
       nextActionAtLabel: caseRow.next_action_at ? formatIst(caseRow.next_action_at) : null,
       responseWindowDays: opened.responseWindowDays,

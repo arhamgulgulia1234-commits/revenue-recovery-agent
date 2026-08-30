@@ -91,7 +91,8 @@ curl -s -X POST localhost:4000/api/live/cases \
     "phone": "+919876543210",
     "segment": "consumer",
     "declineCode": "expired_card",
-    "amountInr": 2499
+    "amountInr": 2499,
+    "sendFirstMessageNow": true
   }' | jq .
 ```
 
@@ -99,16 +100,48 @@ The response tells you what actually happened: the root cause the classifier
 picked, the message the narrator wrote, the Twilio message SID, and when the
 response window closes.
 
+### Real time, and the one override
+
+A live case is **never back-dated**. The failure carries the actual current
+timestamp, the case opens when it really opened, and every response window is
+genuine elapsed time — three real days waiting for a real reply. That is the
+whole point of the real path, and it is the opposite of `/simulate`, which
+deliberately back-dates a failure 24 days so a full sequence resolves in one
+pass for the demo.
+
+Which means: **by default the first message is not immediate.** It goes out when
+the intervention matrix scheduled it, relative to the failure:
+
+| decline code | first action | real delay |
+|---|---|---|
+| `technical_error`, `gateway_timeout` | silent retry | 15 min |
+| `invalid_cvv`, `authentication_failed` | payment link | 30 min |
+| `expired_card` | update card link | 1 hour |
+| `do_not_honor`, `card_declined` | alt payment method | 2 hours |
+| `insufficient_funds` | silent retry | 2.6 days |
+| `invoice_overdue` | polite reminder | 7 days |
+
+To get a message on your phone now, pass **`"sendFirstMessageNow": true`**. It
+pulls *only the first outreach* forward:
+
+- the failure's timestamp is **not** changed — nothing is back-dated
+- every **later** attempt keeps its real schedule
+- every **response window** stays genuine real time
+- **quiet hours still apply** — expedite at 11 PM IST and it still waits for
+  8:30 AM, because that is a compliance rule, not a scheduling convenience
+- it is written to the audit trail as `first_action_expedited`, so the timeline
+  never implies the agent chose this timing
+
+The response's `timing` block always says which happened, and
+`timing.matrixWouldHaveSent` says when it would otherwise have gone.
+
 ### What to expect
 
-- **The message arrives within seconds.** It's the real generated copy, not a
-  template with your name pasted in.
-- **The case sits in `awaiting_response`** for 3 days. It does not fail. This is
-  Stage 1's fix — a case with no reply waits rather than burning its attempts.
-- **The failure is dated a few hours in the past.** Deliberate: the matrix
-  schedules a card-update reminder some hours after the failure, so the failure
-  is back-dated by exactly that offset to make the first message due now. The
-  response says `backdatedByHours`.
+- **The message arrives within seconds** (with the override on). It's the real
+  generated copy, not a template with your name pasted in.
+- **The case sits in `awaiting_response`** for 3 real days. It does not fail.
+  This is Stage 1's fix — a case with no reply waits rather than burning its
+  attempts.
 
 ### Choosing inputs
 

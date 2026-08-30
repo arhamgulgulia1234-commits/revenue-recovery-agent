@@ -30,7 +30,7 @@ export const templateNarrator = {
   source: 'template',
 
   reason(eventType, ctx) {
-    const { customer, attempt, classification, action, outcome, stop, deferral, caseRow } = ctx;
+    const { customer, attempt, classification, action, outcome, stop, deferral, caseRow, expedite } = ctx;
 
     switch (eventType) {
       case 'case_opened':
@@ -74,6 +74,16 @@ export const templateNarrator = {
           `Held the outreach rather than sending it: ${deferral.detail} ` +
           `Silent retries are exempt from this rule — they notify nobody — but anything the ` +
           `customer can hear waits until morning.`
+        );
+
+      case 'first_action_expedited':
+        return (
+          `First outreach sent immediately at an operator's request, rather than at ` +
+          `${formatIst(expedite.matrixWanted)} where the intervention matrix scheduled it. ` +
+          `This affects the timing of this one message and nothing else: the failure's own ` +
+          `timestamp is unchanged, every later attempt keeps its real schedule, and the ` +
+          `${POLICY.RESPONSE_WINDOW_DAYS}-day response window that follows is real elapsed time. ` +
+          `Recorded here because the agent did not choose this timing.`
         );
 
       case 'response_window_opened':

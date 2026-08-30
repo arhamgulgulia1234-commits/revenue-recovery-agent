@@ -88,6 +88,12 @@ export function createRunner({
    * before the window expires.
    */
   mode = 'simulated',
+  /**
+   * Pull the first outreach forward to `now`, instead of waiting out the delay
+   * the matrix schedules it at. Off everywhere except a live case explicitly
+   * opened with it; see decideNext for the bounds.
+   */
+  expediteFirstAction = false,
 } = {}) {
   const randFor = (caseId, sequence, purpose) =>
     makeRandom(streamSeed(seed, caseId, sequence, purpose));
@@ -363,10 +369,39 @@ export function createRunner({
     });
     if (!proposed) return stop(ctx, 'sequence_exhausted', at, 'sequence_exhausted');
 
+    /**
+     * The one deliberate exception to real elapsed time.
+     *
+     * A live case runs on the wall clock, so its first outreach lands whenever
+     * the matrix says — an hour out for an expired card, seven days for an
+     * overdue invoice. That is correct for a real recovery and useless for
+     * finding out whether Twilio is wired up, so `expediteFirstAction` pulls the
+     * *first* action forward to now.
+     *
+     * Strictly bounded, because this is the kind of switch that quietly becomes
+     * a lie about what the agent did:
+     *   - first action only (`attemptsUsed === 0`); every later attempt keeps
+     *     the real schedule, and every response window stays genuine real time
+     *   - the failure's own timestamp is untouched. Nothing is back-dated: the
+     *     case still opens at the moment it really opened
+     *   - quiet hours still apply. A compliance rule is not a scheduling
+     *     convenience, so a message expedited into the small hours still waits
+     *     for morning
+     *   - it is written to the audit trail as an operator override, so the
+     *     timeline never implies the agent chose this timing itself
+     */
+    const expedite = expediteFirstAction && attemptsUsed === 0;
+    const scheduling = expedite
+      ? { proposed: { ...proposed, scheduledFor: now }, notBefore: now }
+      : { proposed, notBefore: at + HOUR };
+
     // Never schedule an action before the previous one finished and its response
     // window closed.
     const gates = screen({
-      customer, attemptsUsed, proposed, asOf: at, notBefore: at + HOUR,
+      customer, attemptsUsed,
+      proposed: scheduling.proposed,
+      asOf: at,
+      notBefore: scheduling.notBefore,
     });
     if (!gates.allowed) {
       return stop(ctx, gates.stop.reason, at,
@@ -375,6 +410,16 @@ export function createRunner({
 
     const action = { ...proposed, scheduledFor: gates.scheduledFor };
     ctx.attemptIndex = attemptsUsed;
+
+    if (expedite) {
+      audit(ctx, 'first_action_expedited',
+        'First outreach expedited to now by operator request',
+        {
+          action,
+          policyRefs: 'expedite_first_action',
+          expedite: { matrixWanted: proposed.scheduledFor, sentAt: gates.scheduledFor },
+        }, gates.scheduledFor);
+    }
 
     if (gates.deferral) {
       audit(ctx, 'quiet_hours_deferred', 'Outreach deferred out of quiet hours',

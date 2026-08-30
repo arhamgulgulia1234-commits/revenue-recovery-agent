@@ -8,25 +8,23 @@
  * which clock the case runs on, whether an outcome may be invented, whether a
  * message is really sent — keys off it.
  *
- * ## Why the failure is dated in the past
+ * ## Real time, and the one exception
  *
- * The matrix schedules interventions relative to the failure: a card-update
- * reminder on day 3, an invoice reminder on day 7 past due. A failure stamped
- * "just now" would therefore schedule its first outreach days out, and testing
- * it would mean waiting days. So the failure is back-dated by exactly the offset
- * the matrix asks for, which puts the first action due right now.
+ * Nothing here is back-dated. The failure carries the actual current timestamp,
+ * the case opens at the moment it really opened, and every response window is
+ * genuine elapsed time: a case waits three real days for a reply, and only a
+ * real webhook or a real deadline moves it on. The demo's compressed clock —
+ * live-run.js back-dating a failure 24 days so a whole sequence resolves in one
+ * pass — has no counterpart here and must not acquire one.
  *
- * That offset is measured by asking the matrix rather than guessing: build the
- * case at `now`, read where it wanted to put the first action, and shift the
- * failure back by that gap. Because the matrix's offsets are constants relative
- * to its anchor, shifting the anchor moves the action one-for-one, so a single
- * pass lands it exactly. Nothing about the decision is altered — the agent still
- * decides for itself what to send and when; it is only being asked about a
- * failure that is genuinely old enough for its answer to be due.
- *
- * Quiet hours are *not* compensated for. If the resulting send lands between
- * 9 PM and 8 AM IST, the compliance gate defers it to the morning exactly as it
- * would for any other case, and the caller is told so.
+ * The single exception is `sendFirstMessageNow`, opt-in and off by default.
+ * Left alone, the first outreach goes out when the matrix says: an hour after an
+ * expired card, seven days after an invoice falls due. That is right for a real
+ * recovery and useless for finding out whether Twilio is wired up, so the flag
+ * pulls *only that first action* forward to now. It changes no timestamp on the
+ * failure, leaves every later attempt on its real schedule, still obeys quiet
+ * hours, and is recorded on the audit trail as an operator override so the
+ * timeline never implies the agent chose the timing itself.
  */
 
 import { classify } from './classifier.js';
@@ -38,10 +36,6 @@ import { DECLINE_CODES, POLICY } from '../lib/taxonomy.js';
 import { PLANS, INVOICE_ITEMS } from '../data/catalog.js';
 
 const DAY = 86400000;
-const HOUR = 3600000;
-
-/** The floor the runner puts under a first action: opened_at + 1 hour. */
-const FIRST_ACTION_FLOOR = HOUR;
 
 export class InvalidLiveInput extends Error {}
 
@@ -88,7 +82,22 @@ export function parseLiveInput(body = {}) {
     bad('Amount must be between ₹1 and ₹10,00,00,000.');
   }
 
-  return { customerName, phone, segment, declineCode, amountInr };
+  // Off by default: real time is the rule, and expediting is the exception you
+  // have to ask for by name.
+  const sendFirstMessageNow = body.sendFirstMessageNow === true;
+
+  // An invoice is only "overdue" relative to a due date that has passed, so this
+  // is a property of the failure rather than a shortcut: it says how long ago
+  // the invoice fell due, not how much time we are pretending has elapsed.
+  const daysOverdue = body.daysOverdue == null ? 3 : Number(body.daysOverdue);
+  if (!Number.isFinite(daysOverdue) || daysOverdue < 0 || daysOverdue > 365) {
+    bad('daysOverdue must be between 0 and 365.');
+  }
+
+  return {
+    customerName, phone, segment, declineCode, amountInr,
+    sendFirstMessageNow, daysOverdue,
+  };
 }
 
 /** A persisted customer for this live case, reusing one by phone if it exists. */
@@ -133,9 +142,10 @@ function buildFailure(db, customer, input, failedAt, suffix) {
   const h = hash(customer.name + input.declineCode);
 
   if (isInvoice) {
-    // AP flags an overdue invoice a few days after the due date; the matrix
-    // counts reminder days from the due date, so that is the anchor.
-    const dueAt = failedAt - 3 * DAY;
+    // The matrix counts reminder days from the due date, so that is the anchor.
+    // A real overdue invoice genuinely has a due date in the past; this is the
+    // caller stating how far, not the clock being moved.
+    const dueAt = failedAt - (input.daysOverdue ?? 3) * DAY;
     const invoice = {
       id: `inv_live_${suffix}`,
       customer_id: customer.id,
@@ -206,15 +216,29 @@ function buildFailure(db, customer, input, failedAt, suffix) {
  * Asks the matrix where it would put the first intervention for a failure
  * stamped `now`, and returns that gap. Zero if it is already due.
  */
-function leadTimeFor(db, customer, input, now) {
+/**
+ * When the matrix would put the first action, for a failure happening now.
+ *
+ * Read-only: it changes nothing and schedules nothing. It exists so the caller
+ * can be told "your first message goes out in 7 days" *before* waiting seven
+ * days to discover it, and so the response can say what expediting actually
+ * skipped.
+ */
+function firstActionForecast(db, customer, input, now) {
   const probe = buildFailure(db, customer, input, now, 'probe');
   const { bucket } = classify(probe.attempt);
   const anchor = probe.invoice ? new Date(probe.invoice.due_at).getTime() : now;
   const decision = decideIntervention({
     bucket, attemptIndex: 0, customer, attempt: probe.attempt, caseOpenedAt: anchor,
   });
-  if (!decision) return 0;
-  return Math.max(0, decision.scheduledFor + FIRST_ACTION_FLOOR - now);
+  if (!decision) return null;
+  return {
+    actionType: decision.actionType,
+    channel: decision.channel,
+    silent: Boolean(decision.silent),
+    scheduledFor: decision.scheduledFor,
+    delayMs: Math.max(0, decision.scheduledFor - now),
+  };
 }
 
 const insert = (db, table, row) => {
@@ -234,12 +258,10 @@ const insert = (db, table, row) => {
 export function openLiveCase(db, input, { now = Date.now(), seed = Date.now() % 2147483647 } = {}) {
   const customer = upsertCustomer(db, input, now);
 
-  // A live case must never inherit a hard stop silently: if this customer opted
-  // out on a previous case, the runner will stop this one before it acts, which
-  // is correct — but the caller should be told why rather than seeing a case
-  // that opened and did nothing.
-  const lead = leadTimeFor(db, customer, input, now);
-  const failedAt = now - lead;
+  // The failure happened now, because it did. Nothing here is shifted to make a
+  // schedule land more conveniently.
+  const forecast = firstActionForecast(db, customer, input, now);
+  const failedAt = now;
 
   const suffix = `${Date.now().toString(36)}${Math.floor(Math.random() * 1296).toString(36)}`;
   const { attempt, subscription, invoice } = buildFailure(db, customer, input, failedAt, suffix);
@@ -248,7 +270,10 @@ export function openLiveCase(db, input, { now = Date.now(), seed = Date.now() % 
   if (invoice) insert(db, 'invoices', invoice);
   insert(db, 'payment_attempts', attempt);
 
-  const runner = createRunner({ db, seed, now, mode: 'live' });
+  const runner = createRunner({
+    db, seed, now, mode: 'live',
+    expediteFirstAction: input.sendFirstMessageNow,
+  });
   const caseRow = runner.runCase({
     attempt, customer, subscription, invoice,
     deliveryMode: 'live',
@@ -260,7 +285,10 @@ export function openLiveCase(db, input, { now = Date.now(), seed = Date.now() % 
 
   return {
     caseRow, attempt, customer, subscription, invoice, interventions,
-    backdatedBy: lead,
+    expedited: Boolean(input.sendFirstMessageNow),
+    // What the matrix wanted, kept even when it was overridden — the difference
+    // between the two is the only honest way to report what expediting skipped.
+    firstActionForecast: forecast,
     responseWindowDays: POLICY.RESPONSE_WINDOW_DAYS,
   };
 }
