@@ -1,11 +1,12 @@
 import {
-  api, inr, inrCompact, istDateTime,
-  DECLINE_LABELS, ROOT_CAUSE_LABELS, CLOSURE_LABELS, STATUS_DISPLAY, SEGMENT_LABELS,
+  api, inr, istDateTime,
+  DECLINE_LABELS, ROOT_CAUSE_LABELS, CLOSURE_LABELS, STATUS_DISPLAY, STATUS_BORDER, SEGMENT_LABELS,
   type CaseStatus, type Insights, type AttentionCase,
 } from '@/lib/api';
 import { RateBars, ScoreBadge } from '@/components/RateBars';
 import { ClickableRow } from '@/components/ClickableRow';
 import { Comparison, type ComparisonData } from '@/components/Comparison';
+import { CountUp } from '@/components/CountUp';
 import Link from 'next/link';
 
 export const dynamic = 'force-dynamic';
@@ -60,42 +61,77 @@ export default async function Page() {
   return (
     <div className="space-y-10">
       <section>
-        <h1 className="text-xl font-semibold tracking-tight">Recovery performance</h1>
-        <p className="text-sm text-muted mt-1">
-          {hasRun
-            ? `${rec.cases} cases run through the agent — detected, diagnosed, actioned and closed.`
-            : 'No engine run yet. Run `npm run simulate` to process the failure book.'}
-        </p>
+        <div className="flex items-baseline justify-between gap-4 flex-wrap">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">Recovery performance</h1>
+            <p className="text-sm text-muted mt-1.5 max-w-2xl leading-relaxed">
+              {hasRun
+                ? `${rec.cases} cases run through the agent — detected, diagnosed, actioned and closed.`
+                : 'No engine run yet. Run `npm run simulate` to process the failure book.'}
+            </p>
+          </div>
+        </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-5">
-          <Metric
+        {/* The three numbers that matter most, given real size and weight so
+            everything else on the page visibly recedes behind them. */}
+        <div className="grid sm:grid-cols-3 gap-3.5 mt-6">
+          <HeroStat
             label="Revenue at risk"
-            value={inrCompact(stats.totals.at_risk_inr)}
+            value={stats.totals.at_risk_inr}
             sub={`${stats.totals.failed_attempts} failed payments`}
+            tone="pending"
           />
-          <Metric
-            label="Revenue recovered"
-            value={inrCompact(rec.recovered_inr)}
-            sub={`${rec.n_recovered} of ${rec.cases} cases`}
-            accent="positive"
-          />
-          <Metric
+          <HeroStat
             label="Recovery rate"
-            value={hasRun ? `${(caseRate * 100).toFixed(1)}%` : '—'}
-            sub={hasRun ? `${(valueRate * 100).toFixed(1)}% by value` : 'of cases'}
+            value={hasRun ? caseRate * 100 : 0}
+            variant="percent1"
+            sub={hasRun ? `${(valueRate * 100).toFixed(1)}% by value` : 'No cases run yet'}
+            tone="brand"
           />
-          <Metric
-            label="Avg days to recovery"
-            value={rec.avg_days_to_recovery != null ? String(rec.avg_days_to_recovery) : '—'}
-            sub="failure to payment"
+          <HeroStat
+            label="Revenue recovered"
+            value={rec.recovered_inr}
+            sub={`${rec.n_recovered} of ${rec.cases} cases`}
+            tone="recovered"
           />
         </div>
 
+        {/* Supporting detail: smaller type, quieter card, one shared legend
+            for the three status colors that recur everywhere below. */}
         {hasRun && (
-          <div className="mt-3 grid grid-cols-3 gap-3">
-            <Split label="Recovered" n={rec.n_recovered} total={rec.cases} tone="bg-emerald-500" />
-            <Split label="Still retrying" n={rec.n_retrying} total={rec.cases} tone="bg-amber-500" />
-            <Split label="Stopped" n={rec.n_stopped} total={rec.cases} tone="bg-stone-500" />
+          <div className="grid sm:grid-cols-[1fr_auto] gap-3.5 mt-3.5">
+            <div className="rounded-xl border border-border bg-card-2/60 px-4 py-3.5">
+              <div className="flex items-center justify-between gap-3 text-xs text-muted mb-2">
+                <span>Case outcomes</span>
+                <span className="tabular-nums">{rec.cases} total</span>
+              </div>
+              <div className="flex h-2 rounded-full overflow-hidden bg-border">
+                <div
+                  className="h-full bg-recovered transition-[width] duration-700 ease-out"
+                  style={{ width: `${(rec.n_recovered / rec.cases) * 100}%` }}
+                />
+                <div
+                  className="h-full bg-pending transition-[width] duration-700 ease-out"
+                  style={{ width: `${(rec.n_retrying / rec.cases) * 100}%` }}
+                />
+                <div
+                  className="h-full bg-stopped transition-[width] duration-700 ease-out"
+                  style={{ width: `${(rec.n_stopped / rec.cases) * 100}%` }}
+                />
+              </div>
+              <div className="flex items-center gap-4 mt-2.5 text-xs flex-wrap">
+                <Legend swatch="bg-recovered" label="Recovered" n={rec.n_recovered} />
+                <Legend swatch="bg-pending" label="Still retrying" n={rec.n_retrying} />
+                <Legend swatch="bg-stopped" label="Stopped" n={rec.n_stopped} />
+              </div>
+            </div>
+            <div className="rounded-xl border border-border bg-card-2/60 px-4 py-3.5 flex flex-col justify-center sm:min-w-[9rem]">
+              <div className="text-xs text-muted">Avg days to recovery</div>
+              <div className="text-lg font-semibold tabular-nums mt-0.5">
+                {rec.avg_days_to_recovery != null ? rec.avg_days_to_recovery : '—'}
+              </div>
+              <div className="text-xs text-muted mt-0.5">failure to payment</div>
+            </div>
           </div>
         )}
       </section>
@@ -104,7 +140,7 @@ export default async function Page() {
 
       {hasRun && attention.length > 0 && (
         <section>
-          <h2 className="text-sm font-semibold">
+          <h2 className="text-base font-semibold tracking-tight">
             Needs attention
             <span className="font-normal text-muted"> — a human should probably step in</span>
           </h2>
@@ -114,16 +150,16 @@ export default async function Page() {
             of the cap. Opted-out and disputed customers are excluded, because a human may
             not contact them either.
           </p>
-          <div className="overflow-x-auto rounded-lg border border-border">
+          <div className="overflow-x-auto rounded-xl border border-border">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-muted text-left bg-card border-b border-border">
-                  <th className="py-2 px-3 font-medium">Case</th>
-                  <th className="py-2 px-3 font-medium">Customer</th>
-                  <th className="py-2 px-3 font-medium text-right">At risk</th>
-                  <th className="py-2 px-3 font-medium text-center">Likelihood</th>
-                  <th className="py-2 px-3 font-medium text-right">Expected loss</th>
-                  <th className="py-2 px-3 font-medium">Why it is here</th>
+                <tr className="text-muted text-left bg-card-2/60 border-b border-border">
+                  <th className="py-2 px-3 text-[11px] uppercase tracking-wide font-medium">Case</th>
+                  <th className="py-2 px-3 text-[11px] uppercase tracking-wide font-medium">Customer</th>
+                  <th className="py-2 px-3 text-[11px] uppercase tracking-wide font-medium text-right">At risk</th>
+                  <th className="py-2 px-3 text-[11px] uppercase tracking-wide font-medium text-center">Likelihood</th>
+                  <th className="py-2 px-3 text-[11px] uppercase tracking-wide font-medium text-right">Expected loss</th>
+                  <th className="py-2 px-3 text-[11px] uppercase tracking-wide font-medium">Why it is here</th>
                 </tr>
               </thead>
               <tbody>
@@ -131,7 +167,7 @@ export default async function Page() {
                   <ClickableRow
                     key={c.id}
                     href={`/cases/${c.id}`}
-                    className="border-b border-border/60 last:border-0 align-top hover:bg-card/70 transition-colors"
+                    className="border-b border-border/60 last:border-0 align-top hover:bg-card-2/70 transition-colors"
                   >
                     <td className="py-2 px-3 font-mono text-xs">
                       <Link href={`/cases/${c.id}`} className="text-muted hover:text-foreground hover:underline">
@@ -167,7 +203,7 @@ export default async function Page() {
 
       {hasRun && (
         <section>
-          <h2 className="text-sm font-semibold">Patterns behind the score</h2>
+          <h2 className="text-base font-semibold tracking-tight">Patterns behind the score</h2>
           <p className="text-xs text-muted mt-1 mb-4">
             Recovery rates counted off {insights.sampleSize} actionable cases
             ({insights.excluded} excluded — the agent was never allowed to act on them).
@@ -176,7 +212,7 @@ export default async function Page() {
             swing a score. The blend is {insights.weights.rootCause} root cause ·{' '}
             {insights.weights.attempt} attempts · {insights.weights.segment} segment.
           </p>
-          <div className="grid md:grid-cols-3 gap-8 rounded-lg border border-border bg-card p-5">
+          <div className="grid md:grid-cols-3 gap-8 rounded-xl border border-border bg-card p-5">
             <RateBars
               title="By root cause"
               rows={insights.byRootCause.map((r) => ({
@@ -206,14 +242,14 @@ export default async function Page() {
       {hasRun && (
         <section className="grid md:grid-cols-2 gap-8">
           <div>
-            <h2 className="text-sm font-semibold mb-3">Outcome by root cause</h2>
+            <h2 className="text-base font-semibold tracking-tight mb-3">Outcome by root cause</h2>
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-muted text-left border-b border-border">
-                  <th className="py-2 font-medium">Root cause</th>
-                  <th className="py-2 font-medium text-right">Cases</th>
-                  <th className="py-2 font-medium text-right">Recovered</th>
-                  <th className="py-2 font-medium text-right">Rate</th>
+                  <th className="py-2 text-[11px] uppercase tracking-wide font-medium">Root cause</th>
+                  <th className="py-2 text-[11px] uppercase tracking-wide font-medium text-right">Cases</th>
+                  <th className="py-2 text-[11px] uppercase tracking-wide font-medium text-right">Recovered</th>
+                  <th className="py-2 text-[11px] uppercase tracking-wide font-medium text-right">Rate</th>
                 </tr>
               </thead>
               <tbody>
@@ -232,16 +268,16 @@ export default async function Page() {
           </div>
 
           <div>
-            <h2 className="text-sm font-semibold mb-3">
+            <h2 className="text-base font-semibold tracking-tight mb-3">
               Why the agent stopped
               <span className="font-normal text-muted"> — every stop carries a logged reason</span>
             </h2>
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-muted text-left border-b border-border">
-                  <th className="py-2 font-medium">Reason</th>
-                  <th className="py-2 font-medium text-right">Cases</th>
-                  <th className="py-2 font-medium text-right">Left on table</th>
+                  <th className="py-2 text-[11px] uppercase tracking-wide font-medium">Reason</th>
+                  <th className="py-2 text-[11px] uppercase tracking-wide font-medium text-right">Cases</th>
+                  <th className="py-2 text-[11px] uppercase tracking-wide font-medium text-right">Left on table</th>
                 </tr>
               </thead>
               <tbody>
@@ -264,21 +300,27 @@ export default async function Page() {
       )}
 
       <section>
-        <h2 className="text-sm font-semibold mb-3">
+        <h2 className="text-base font-semibold tracking-tight mb-3">
           Failure feed <span className="font-normal text-muted">({failures.length})</span>
         </h2>
-        <div className="overflow-x-auto rounded-lg border border-border">
+        {failures.length === 0 ? (
+          <EmptyState
+            title="No failures recorded yet"
+            body="Once payments, mandates or invoices start failing, they will show up here as they come in."
+          />
+        ) : (
+        <div className="overflow-x-auto rounded-xl border border-border">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-muted text-left bg-card border-b border-border">
-                <th className="py-2 px-3 font-medium">Customer</th>
-                <th className="py-2 px-3 font-medium">Item</th>
-                <th className="py-2 px-3 font-medium">Decline</th>
-                <th className="py-2 px-3 font-medium">Diagnosis</th>
-                <th className="py-2 px-3 font-medium text-right">Amount</th>
-                <th className="py-2 px-3 font-medium text-center">Likelihood</th>
-                <th className="py-2 px-3 font-medium">Status</th>
-                <th className="py-2 px-3 font-medium">Failed at (IST)</th>
+              <tr className="text-muted text-left bg-card-2/60 border-b border-border">
+                <th className="py-2 px-3 text-[11px] uppercase tracking-wide font-medium">Customer</th>
+                <th className="py-2 px-3 text-[11px] uppercase tracking-wide font-medium">Item</th>
+                <th className="py-2 px-3 text-[11px] uppercase tracking-wide font-medium">Decline</th>
+                <th className="py-2 px-3 text-[11px] uppercase tracking-wide font-medium">Diagnosis</th>
+                <th className="py-2 px-3 text-[11px] uppercase tracking-wide font-medium text-right">Amount</th>
+                <th className="py-2 px-3 text-[11px] uppercase tracking-wide font-medium text-center">Likelihood</th>
+                <th className="py-2 px-3 text-[11px] uppercase tracking-wide font-medium">Status</th>
+                <th className="py-2 px-3 text-[11px] uppercase tracking-wide font-medium">Failed at (IST)</th>
               </tr>
             </thead>
             <tbody>
@@ -286,9 +328,13 @@ export default async function Page() {
                 <ClickableRow
                   key={f.id}
                   href={f.case_id ? `/cases/${f.case_id}` : '#'}
-                  className="border-b border-border/60 last:border-0 hover:bg-card/70 transition-colors"
+                  className="border-b border-border/60 last:border-0 hover:bg-card-2/70 transition-colors"
                 >
-                  <td className="py-2 px-3">
+                  <td
+                    className={`py-2 px-3 border-l-[3px] ${
+                      f.case_status ? STATUS_BORDER[f.case_status] : 'border-l-transparent'
+                    }`}
+                  >
                     {f.case_id ? (
                       <Link href={`/cases/${f.case_id}`} className="font-medium hover:underline">
                         {f.customer_name}
@@ -297,7 +343,7 @@ export default async function Page() {
                       <span className="font-medium">{f.customer_name}</span>
                     )}
                     {(f.opted_out_at || f.disputed_at) && (
-                      <span className="ml-2 text-[10px] uppercase tracking-wide rounded px-1.5 py-0.5 bg-red-500/10 text-red-500">
+                      <span className="ml-2 text-[10px] uppercase tracking-wide rounded-full px-1.5 py-0.5 bg-alert/10 text-alert font-medium">
                         {f.disputed_at ? 'disputed' : 'opted out'}
                       </span>
                     )}
@@ -336,7 +382,22 @@ export default async function Page() {
             </tbody>
           </table>
         </div>
+        )}
       </section>
+    </div>
+  );
+}
+
+function EmptyState({ title, body }: { title: string; body: string }) {
+  return (
+    <div className="rounded-xl border border-dashed border-border bg-card-2/40 px-6 py-10 text-center">
+      <div className="mx-auto grid h-10 w-10 place-items-center rounded-full bg-card border border-border text-muted">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+          <path d="M4 6h16M4 12h16M4 18h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        </svg>
+      </div>
+      <h3 className="text-sm font-semibold mt-3">{title}</h3>
+      <p className="text-xs text-muted mt-1 max-w-sm mx-auto leading-relaxed">{body}</p>
     </div>
   );
 }
@@ -348,48 +409,49 @@ function StatusBadge({ status }: { status: CaseStatus | null }) {
   // `undefined.className`.
   const d = STATUS_DISPLAY[status] ?? {
     label: String(status).replace(/_/g, ' '),
-    className: 'bg-stone-500/10 text-stone-600 dark:text-stone-400',
+    className: 'bg-stopped/10 text-stopped',
   };
   return (
     <span className={`text-xs rounded px-2 py-0.5 font-medium ${d.className}`}>{d.label}</span>
   );
 }
 
-function Metric({
-  label, value, sub, accent,
-}: { label: string; value: string; sub: string; accent?: 'positive' }) {
+const HERO_TONE = {
+  pending: { ring: 'border-t-pending', text: 'text-foreground' },
+  brand: { ring: 'border-t-brand', text: 'text-foreground' },
+  recovered: { ring: 'border-t-recovered', text: 'text-recovered' },
+} as const;
+
+function HeroStat({
+  label, value, sub, tone, variant = 'inrCompact',
+}: {
+  label: string; value: number; sub: string;
+  tone: keyof typeof HERO_TONE; variant?: 'inrCompact' | 'percent1';
+}) {
+  const t = HERO_TONE[tone];
   return (
-    <div className="rounded-lg border border-border bg-card p-4">
-      <div className="text-xs text-muted">{label}</div>
-      <div
-        className={`text-2xl font-semibold tracking-tight mt-1 tabular-nums ${
-          accent === 'positive' ? 'text-emerald-600 dark:text-emerald-400' : ''
-        }`}
-      >
-        {value}
+    <div className={`rounded-xl border border-border border-t-[3px] ${t.ring} bg-card p-5`}>
+      <div className="text-xs text-muted font-medium">{label}</div>
+      <div className={`text-4xl font-semibold tracking-tight mt-2 ${t.text}`}>
+        <CountUp value={value} variant={variant} />
       </div>
-      <div className="text-xs text-muted mt-1">{sub}</div>
+      <div className="text-xs text-muted mt-2">{sub}</div>
     </div>
   );
 }
 
-function Split({ label, n, total, tone }: { label: string; n: number; total: number; tone: string }) {
+function Legend({ swatch, label, n }: { swatch: string; label: string; n: number }) {
   return (
-    <div className="rounded-lg border border-border bg-card px-4 py-3">
-      <div className="flex items-baseline justify-between">
-        <span className="text-xs text-muted">{label}</span>
-        <span className="text-sm font-semibold tabular-nums">{n}</span>
-      </div>
-      <div className="mt-2 h-1.5 rounded-full bg-border overflow-hidden">
-        <div className={`h-full rounded-full ${tone}`} style={{ width: `${(n / total) * 100}%` }} />
-      </div>
-    </div>
+    <span className="inline-flex items-center gap-1.5 text-muted">
+      <span className={`h-2 w-2 rounded-full ${swatch}`} aria-hidden />
+      {label} <span className="tabular-nums text-foreground font-medium">{n}</span>
+    </span>
   );
 }
 
 function Offline() {
   return (
-    <div className="rounded-lg border border-border bg-card p-6">
+    <div className="rounded-xl border border-border bg-card p-6">
       <h1 className="font-semibold">Backend not reachable</h1>
       <p className="text-sm text-muted mt-2">Start it and run the agent:</p>
       <pre className="mt-3 text-xs bg-background border border-border rounded p-3 overflow-x-auto">
