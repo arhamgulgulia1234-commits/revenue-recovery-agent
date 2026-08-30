@@ -106,12 +106,10 @@ export function createRunner({
     insertCase: db.prepare(`
       INSERT INTO recovery_cases (id,payment_attempt_id,customer_id,case_type,root_cause,
         root_cause_confidence,amount_at_risk_inr,status,attempts_used,opened_at,closed_at,
-        closure_reason,recovered_amount_inr,next_action_at,awaiting_log_id,delivery_mode,
-        contact_phone)
+        closure_reason,recovered_amount_inr,next_action_at,awaiting_log_id,delivery_mode)
       VALUES (@id,@payment_attempt_id,@customer_id,@case_type,@root_cause,@root_cause_confidence,
         @amount_at_risk_inr,@status,@attempts_used,@opened_at,@closed_at,@closure_reason,
-        @recovered_amount_inr,@next_action_at,@awaiting_log_id,@delivery_mode,
-        @contact_phone)`),
+        @recovered_amount_inr,@next_action_at,@awaiting_log_id,@delivery_mode)`),
     updateCase: db.prepare(`
       UPDATE recovery_cases SET status=@status, attempts_used=@attempts_used, closed_at=@closed_at,
         closure_reason=@closure_reason, recovered_amount_inr=@recovered_amount_inr,
@@ -120,15 +118,12 @@ export function createRunner({
         delivery_mode=@delivery_mode WHERE id=@id`),
     insertLog: db.prepare(`
       INSERT INTO intervention_logs (id,case_id,sequence,action_type,channel,tone,message_sent,
-        scheduled_for,executed_at,response_deadline_at,responded_at,outcome,outcome_detail,
-        delivery_status)
+        scheduled_for,executed_at,response_deadline_at,responded_at,outcome,outcome_detail)
       VALUES (@id,@case_id,@sequence,@action_type,@channel,@tone,@message_sent,@scheduled_for,
-        @executed_at,@response_deadline_at,@responded_at,@outcome,@outcome_detail,
-        @delivery_status)`),
+        @executed_at,@response_deadline_at,@responded_at,@outcome,@outcome_detail)`),
     sendLog: db.prepare(`
       UPDATE intervention_logs SET executed_at=@executed_at, message_sent=@message_sent,
-        response_deadline_at=@response_deadline_at, outcome_detail=@outcome_detail,
-        delivery_status=@delivery_status WHERE id=@id`),
+        response_deadline_at=@response_deadline_at, outcome_detail=@outcome_detail WHERE id=@id`),
     resolveLog: db.prepare(`
       UPDATE intervention_logs SET responded_at=@responded_at, outcome=@outcome,
         outcome_detail=@outcome_detail WHERE id=@id`),
@@ -401,7 +396,6 @@ export function createRunner({
       responded_at: null,
       outcome: null,
       outcome_detail: 'Scheduled — not yet due',
-      delivery_status: 'simulated',
     });
 
     caseRow.status = 'in_progress';
@@ -416,28 +410,18 @@ export function createRunner({
    * A silent retry is answered by the gateway in the same breath, so it executes
    * and resolves together. Anything a person has to read opens a response window
    * and the case waits.
-   *
-   * On a live case the actual WhatsApp call does not happen here. This engine is
-   * synchronous — better-sqlite3 is, and every caller depends on that — while an
-   * HTTP call to Twilio is not. So the row is marked 'pending' and engine/
-   * delivery.js sends it just after: a plain outbox. It also happens to be the
-   * more honest record, because writing the row and Twilio accepting the message
-   * are two separate events that really can disagree, and a crash between them
-   * leaves work to be retried rather than a message believed sent.
    */
   function send(ctx, log, at) {
     const { caseRow } = ctx;
     const silent = log.channel === 'none';
     const deadline = silent ? null : at + POLICY.RESPONSE_WINDOW_MS;
-    const delivery = deliveryPlan(caseRow, log);
 
     stmt.sendLog.run({
       id: log.id,
       executed_at: iso(at),
       message_sent: log.message_sent,
       response_deadline_at: deadline == null ? null : iso(deadline),
-      outcome_detail: silent ? 'Retry submitted to the gateway' : delivery.detail,
-      delivery_status: delivery.status,
+      outcome_detail: silent ? 'Retry submitted to the gateway' : 'Sent — awaiting response',
     });
 
     caseRow.attempts_used = log.sequence;
@@ -459,31 +443,6 @@ export function createRunner({
     // branch — so a back-dated failure whose window closed weeks ago resolves on
     // the next pass instead of sitting here forever.
     return 'continue';
-  }
-
-
-  /**
-   * Whether this outreach is a real message, and what to say about it.
-   *
-   * Only a live case with a real number on it and a channel this build can
-   * actually deliver over becomes outbox work. Everything else is honest about
-   * why it is not: a live case that routes to email says so on the timeline
-   * rather than quietly looking like it was delivered.
-   */
-  function deliveryPlan(caseRow, log) {
-    if (caseRow.delivery_mode !== 'live' || log.channel === 'none') {
-      return { status: 'simulated', detail: 'Sent — awaiting response' };
-    }
-    if (log.channel !== 'whatsapp') {
-      return {
-        status: 'skipped',
-        detail: `Not delivered — this case runs live and ${log.channel} sending is not wired up`,
-      };
-    }
-    if (!caseRow.contact_phone) {
-      return { status: 'skipped', detail: 'Not delivered — no contact phone on this case' };
-    }
-    return { status: 'pending', detail: 'Queued for WhatsApp delivery' };
   }
 
   /**
@@ -626,8 +585,6 @@ export function createRunner({
     attempt, customer, subscription, invoice,
     attemptsUsed: startAttempts = 0,
     deliveryMode = mode,
-    /** E.164, live cases only. Where this case's WhatsApp outreach actually goes. */
-    contactPhone = null,
   }) {
     const caseId = nextId('case', 'case');
     const openedAt = ms(attempt.created_at);
@@ -649,7 +606,6 @@ export function createRunner({
       next_action_at: null,
       awaiting_log_id: null,
       delivery_mode: deliveryMode,
-      contact_phone: contactPhone,
     };
     stmt.insertCase.run(caseRow);
 

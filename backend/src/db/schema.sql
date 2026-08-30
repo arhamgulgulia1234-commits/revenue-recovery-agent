@@ -68,12 +68,6 @@ CREATE TABLE IF NOT EXISTS payment_attempts (
   attempt_number  INTEGER NOT NULL DEFAULT 1,
   channel         TEXT NOT NULL CHECK (channel IN ('autopay','checkout','invoice_link')),
   created_at      TEXT NOT NULL,
-  -- 'seed' is the synthetic book: 80 generated failures whose aggregate numbers
-  -- are the demo. 'live' is a real failure entered by hand to drive a real
-  -- message to a real phone. Portfolio totals, priors and the naive-baseline
-  -- comparison all describe the seeded book and filter on this, so opening a
-  -- live case cannot move the headline recovery rate.
-  source          TEXT NOT NULL DEFAULT 'seed' CHECK (source IN ('seed','live')),
   CHECK (subscription_id IS NOT NULL OR invoice_id IS NOT NULL)
 );
 
@@ -106,12 +100,7 @@ CREATE TABLE IF NOT EXISTS recovery_cases (
   -- 'live'      -> a real message went to a real phone and the only thing that
   --                can close this case is a real payment event.
   delivery_mode         TEXT NOT NULL DEFAULT 'simulated'
-                        CHECK (delivery_mode IN ('simulated','live')),
-  -- The real phone number this case's outreach goes to, E.164, on a live case.
-  -- It lives on the case rather than on customers because the synthetic roster
-  -- carries generated numbers that must never be dialled: a number here is a
-  -- deliberate statement that a human agreed to receive these messages.
-  contact_phone         TEXT
+                        CHECK (delivery_mode IN ('simulated','live'))
 );
 
 -- ---------------------------------------------------------------------------
@@ -134,23 +123,7 @@ CREATE TABLE IF NOT EXISTS intervention_logs (
   -- When the response actually landed, whichever way it went.
   responded_at   TEXT,
   outcome        TEXT CHECK (outcome IN ('recovered','failed','no_response','promise_to_pay','suppressed')),
-  outcome_detail TEXT,
-  -- -- Delivery ---------------------------------------------------------------
-  -- Writing the row and handing the message to Twilio are two different events
-  -- that can disagree, so the record keeps them apart. 'simulated' means there
-  -- was never anything to send; 'pending' means the engine has committed to
-  -- sending and the dispatcher has not got there yet; 'skipped' means a live
-  -- case chose a channel this build cannot deliver on.
-  delivery_status     TEXT NOT NULL DEFAULT 'simulated'
-                      CHECK (delivery_status IN ('simulated','pending','sent','failed','skipped')),
-  -- Twilio's message SID. The receipt: it is what you paste into the Twilio
-  -- console to see what actually happened to this message.
-  provider_message_id TEXT,
-  -- The number actually dialled, recorded as sent rather than re-derived from
-  -- the case later, so the audit trail cannot drift if the case is edited.
-  delivered_to        TEXT,
-  delivered_at        TEXT,
-  delivery_error      TEXT
+  outcome_detail TEXT
 );
 
 CREATE TABLE IF NOT EXISTS promises_to_pay (

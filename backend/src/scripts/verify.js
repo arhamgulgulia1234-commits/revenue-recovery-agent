@@ -139,17 +139,8 @@ check('Every audit entry carries real reasoning text', emptyReasoning.length ===
   emptyReasoning.slice(0, 5).map((a) => a.event_type).join(', '));
 
 // 6. Money adds up
-//
-// The compliance checks above deliberately cover every case, live ones included
-// — an opt-out must be honoured whoever the customer is. The headline totals are
-// a different kind of statement: they describe the seeded book, are meant to be
-// reproducible from `npm run seed && npm run simulate`, and would otherwise
-// drift by a few rupees every time someone tested a real WhatsApp send.
 const money = all(`
-  SELECT SUM(recovered_amount_inr) rec, SUM(amount_at_risk_inr) risk
-    FROM recovery_cases WHERE delivery_mode = 'simulated'`)[0];
-const liveCases = all(
-  "SELECT COUNT(*) n FROM recovery_cases WHERE delivery_mode = 'live'")[0].n;
+  SELECT SUM(recovered_amount_inr) rec, SUM(amount_at_risk_inr) risk FROM recovery_cases`)[0];
 const badMoney = all(`
   SELECT id FROM recovery_cases
    WHERE (status = 'recovered' AND recovered_amount_inr != amount_at_risk_inr)
@@ -173,7 +164,5 @@ for (const c of checks) {
 }
 console.log(
   `\n  ${checks.length - failed}/${checks.length} passed · ` +
-  `₹${money.rec.toLocaleString('en-IN')} recovered of ₹${money.risk.toLocaleString('en-IN')} at risk` +
-  (liveCases ? `\n  (seeded book; ${liveCases} live case${liveCases === 1 ? '' : 's'} checked but not counted)` : '') +
-  '\n');
+  `₹${money.rec.toLocaleString('en-IN')} recovered of ₹${money.risk.toLocaleString('en-IN')} at risk\n`);
 process.exit(failed > 0 ? 1 : 0);

@@ -9,10 +9,8 @@ import { insightsRouter } from './routes/insights.js';
 import { comparisonRouter } from './routes/comparison.js';
 import { simulateRouter } from './routes/simulate.js';
 import { schedulerRouter } from './routes/scheduler.js';
-import { liveRouter } from './routes/live.js';
 import { startScheduler } from './engine/scheduler.js';
 import { anchorPinned } from './lib/clock.js';
-import { configSummary } from './lib/twilio.js';
 
 const app = express();
 
@@ -43,10 +41,7 @@ app.use(express.json());
 app.get('/health', (req, res) => {
   const db = getDb();
   const seeded = db.prepare('SELECT COUNT(*) AS n FROM payment_attempts').get().n;
-  res.json({
-    ok: true, db: DB_PATH, seededFailures: seeded, policy: POLICY,
-    whatsapp: configSummary(),
-  });
+  res.json({ ok: true, db: DB_PATH, seededFailures: seeded, policy: POLICY });
 });
 
 app.use('/api/portfolio', portfolioRouter);
@@ -55,7 +50,6 @@ app.use('/api/insights', insightsRouter);
 app.use('/api/comparison', comparisonRouter);
 app.use('/api/simulate', simulateRouter);
 app.use('/api/scheduler', schedulerRouter);
-app.use('/api/live', liveRouter);
 
 app.use((req, res) => res.status(404).json({ error: 'not_found', path: req.path }));
 app.use((err, req, res, _next) => {

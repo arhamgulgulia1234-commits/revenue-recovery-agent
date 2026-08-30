@@ -110,8 +110,7 @@ export function runBaseline(db, { seed = Number(process.env.SEED) || 20260829 } 
   const now = process.env.SEED_NOW ? new Date(process.env.SEED_NOW).getTime() : Date.now();
 
   const attempts = db.prepare(`
-    SELECT * FROM payment_attempts
-     WHERE status = 'failed' AND source = 'seed' ORDER BY created_at ASC`).all();
+    SELECT * FROM payment_attempts WHERE status = 'failed' ORDER BY created_at ASC`).all();
   const customers = new Map(db.prepare('SELECT * FROM customers').all().map((c) => [c.id, c]));
 
   const results = [];
