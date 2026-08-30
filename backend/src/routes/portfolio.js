@@ -5,6 +5,16 @@ import { scoreCases } from '../engine/score-service.js';
 export const portfolioRouter = Router();
 
 /** Top-line view of the at-risk book, before any recovery work. */
+/**
+ * The book, in aggregate.
+ *
+ * Everything here is scoped to the seeded book — `source = 'seed'` on attempts,
+ * `delivery_mode = 'simulated'` on cases. These are the demo's headline numbers
+ * and they are supposed to be reproducible from `npm run seed && npm run
+ * simulate`; a live case opened to test a real WhatsApp send is a real event,
+ * not part of that dataset, and must not move the recovery rate. Live cases are
+ * read through /api/live and shown on their own case pages instead.
+ */
 portfolioRouter.get('/stats', (req, res) => {
   const db = getDb();
   const one = (sql) => db.prepare(sql).get();
@@ -15,18 +25,20 @@ portfolioRouter.get('/stats', (req, res) => {
       SELECT COUNT(*) AS failed_attempts,
              COALESCE(SUM(amount_inr), 0) AS at_risk_inr,
              COUNT(DISTINCT customer_id) AS customers_affected
-      FROM payment_attempts WHERE status = 'failed'`),
+      FROM payment_attempts WHERE status = 'failed' AND source = 'seed'`),
     byDeclineCode: all(`
       SELECT decline_code, COUNT(*) AS n, SUM(amount_inr) AS at_risk_inr
-      FROM payment_attempts WHERE status = 'failed'
+      FROM payment_attempts WHERE status = 'failed' AND source = 'seed'
       GROUP BY decline_code ORDER BY n DESC`),
     bySegment: all(`
       SELECT c.segment, COUNT(*) AS n, SUM(p.amount_inr) AS at_risk_inr
       FROM payment_attempts p JOIN customers c ON c.id = p.customer_id
-      WHERE p.status = 'failed' GROUP BY c.segment ORDER BY at_risk_inr DESC`),
+      WHERE p.status = 'failed' AND p.source = 'seed'
+      GROUP BY c.segment ORDER BY at_risk_inr DESC`),
     byChannel: all(`
       SELECT channel, COUNT(*) AS n, SUM(amount_inr) AS at_risk_inr
-      FROM payment_attempts WHERE status = 'failed' GROUP BY channel`),
+      FROM payment_attempts WHERE status = 'failed' AND source = 'seed'
+      GROUP BY channel`),
     hardStops: one(`
       SELECT SUM(opted_out_at IS NOT NULL) AS opted_out,
              SUM(disputed_at IS NOT NULL) AS disputed
@@ -40,10 +52,10 @@ portfolioRouter.get('/stats', (req, res) => {
              SUM(status = 'stopped') AS n_stopped,
              ROUND(AVG(CASE WHEN status = 'recovered'
                        THEN julianday(closed_at) - julianday(opened_at) END), 1) AS avg_days_to_recovery
-      FROM recovery_cases`),
+      FROM recovery_cases WHERE delivery_mode = 'simulated'`),
     stopReasons: all(`
       SELECT closure_reason, COUNT(*) AS n, SUM(amount_at_risk_inr) AS at_risk_inr
-      FROM recovery_cases WHERE status = 'stopped'
+      FROM recovery_cases WHERE status = 'stopped' AND delivery_mode = 'simulated'
       GROUP BY closure_reason ORDER BY n DESC`),
     byRootCause: all(`
       SELECT root_cause, COUNT(*) AS n,
@@ -51,7 +63,8 @@ portfolioRouter.get('/stats', (req, res) => {
              SUM(status IN ('in_progress','awaiting_response','promise_to_pay')) AS retrying,
              SUM(status = 'stopped') AS stopped,
              SUM(recovered_amount_inr) AS recovered_inr
-      FROM recovery_cases GROUP BY root_cause ORDER BY n DESC`),
+      FROM recovery_cases WHERE delivery_mode = 'simulated'
+      GROUP BY root_cause ORDER BY n DESC`),
   });
 });
 
@@ -69,7 +82,7 @@ portfolioRouter.get('/failures', (req, res) => {
     LEFT JOIN subscriptions s ON s.id = p.subscription_id
     LEFT JOIN invoices i ON i.id = p.invoice_id
     LEFT JOIN recovery_cases rc ON rc.payment_attempt_id = p.id
-    WHERE p.status = 'failed'
+    WHERE p.status = 'failed' AND p.source = 'seed'
     ORDER BY p.created_at DESC
     LIMIT ?`).all(limit);
 

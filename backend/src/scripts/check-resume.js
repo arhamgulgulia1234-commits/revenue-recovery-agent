@@ -20,6 +20,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { DB_PATH } from '../db/index.js';
+import { migrate } from '../db/migrate.js';
 import { createRunner } from '../engine/runner.js';
 import { sweep } from '../engine/scheduler.js';
 
@@ -33,6 +34,25 @@ if (!fs.existsSync(DB_PATH)) {
   process.exit(1);
 }
 
+/**
+ * Fold the write-ahead log back into the database file.
+ *
+ * The app runs in WAL mode, so recent writes — including any schema migration
+ * applied on the last open — live in `recovery.sqlite-wal` and not in
+ * `recovery.sqlite`. Copying just the one file therefore hands back a database
+ * that is silently behind, which surfaces as a missing column rather than as
+ * anything resembling its cause.
+ */
+function checkpoint() {
+  const db = new Database(DB_PATH);
+  try {
+    migrate(db);
+    db.pragma('wal_checkpoint(TRUNCATE)');
+  } finally {
+    db.close();
+  }
+}
+
 /** A private copy of the seeded book with every engine-written row removed. */
 function fresh(tag) {
   const file = path.join(os.tmpdir(), `recovery-resume-${tag}-${process.pid}.sqlite`);
@@ -42,10 +62,15 @@ function fresh(tag) {
   fs.copyFileSync(DB_PATH, file);
 
   const db = new Database(file);
+  // The copy is opened directly rather than through getDb(), so nothing else
+  // would bring it up to the current schema.
+  migrate(db);
   db.pragma('foreign_keys = OFF');
   for (const t of ['recovery_cases', 'intervention_logs', 'audit_entries', 'promises_to_pay']) {
     db.exec(`DELETE FROM ${t}`);
   }
+  // Live failures are real events, not part of the book this check is about.
+  db.exec("DELETE FROM payment_attempts WHERE source = 'live'");
   // Opt-outs the engine wrote back onto customers during a previous run would
   // otherwise pre-stop cases that should get to run here.
   db.exec(`UPDATE customers SET opted_out_at = NULL
@@ -59,7 +84,8 @@ function fresh(tag) {
 function runAt(db, now) {
   const runner = createRunner({ db, seed: SEED, now });
   const attempts = db.prepare(
-    `SELECT * FROM payment_attempts WHERE status = 'failed' ORDER BY created_at ASC`).all();
+    `SELECT * FROM payment_attempts
+      WHERE status = 'failed' AND source = 'seed' ORDER BY created_at ASC`).all();
   const get = (table, id) =>
     id ? db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(id) : null;
 
@@ -80,6 +106,8 @@ const shape = (db) => db.prepare(`
   FROM recovery_cases ORDER BY id`).all()
   .map((c) => [c.id, c.status, c.attempts_used, c.closure_reason ?? '-',
     c.recovered_amount_inr, c.closed_at ?? '-'].join(' '));
+
+checkpoint();
 
 // -- One uninterrupted pass at the anchor ------------------------------------
 const single = fresh('single');
