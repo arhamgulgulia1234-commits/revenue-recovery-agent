@@ -16,7 +16,11 @@
     "compare": "node src/scripts/compare.js",
     "narrate:export": "node src/scripts/narration-export.js",
     "narrate:apply": "node src/scripts/narration-apply.js",
-    "reset": "node src/scripts/reset.js"
+    "reset": "node src/scripts/reset.js",
+    "tick": "node src/scripts/tick.js",
+    "check:resume": "node src/scripts/check-resume.js",
+    "whatsapp:test": "node src/scripts/whatsapp-test.js",
+    "live:reset": "node src/scripts/live-reset.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.122.0",

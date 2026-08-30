@@ -57,15 +57,32 @@ export const CLOSURE_LABELS: Record<string, string> = {
   sequence_exhausted: 'No interventions left',
 };
 
-/** The three buckets the dashboard shows. promise_to_pay is still in flight. */
-export type CaseStatus = 'recovered' | 'in_progress' | 'promise_to_pay' | 'stopped';
+/**
+ * Every status a case can be in. `open` is momentary and `failed` is not
+ * currently reachable, but both exist in the schema's CHECK constraint and so
+ * can appear on a row; leaving either out of this map is how the dashboard
+ * ends up rendering `undefined.className`.
+ *
+ * `awaiting_response` is the state a case sits in after an outreach goes out and
+ * before its response window closes — where a case genuinely spends most of its
+ * life, so it is a first-class status here rather than folded into 'Retrying'.
+ */
+export type CaseStatus =
+  | 'open' | 'in_progress' | 'awaiting_response' | 'promise_to_pay'
+  | 'recovered' | 'stopped' | 'failed';
 
 export const STATUS_DISPLAY: Record<CaseStatus, { label: string; className: string }> = {
-  recovered:      { label: 'Recovered', className: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' },
-  in_progress:    { label: 'Retrying',  className: 'bg-amber-500/10 text-amber-600 dark:text-amber-400' },
-  promise_to_pay: { label: 'Promised',  className: 'bg-sky-500/10 text-sky-600 dark:text-sky-400' },
-  stopped:        { label: 'Stopped',   className: 'bg-stone-500/10 text-stone-600 dark:text-stone-400' },
+  open:              { label: 'Open',      className: 'bg-stone-500/10 text-stone-600 dark:text-stone-400' },
+  in_progress:       { label: 'Retrying',  className: 'bg-amber-500/10 text-amber-600 dark:text-amber-400' },
+  awaiting_response: { label: 'Awaiting reply', className: 'bg-violet-500/10 text-violet-600 dark:text-violet-400' },
+  promise_to_pay:    { label: 'Promised',  className: 'bg-sky-500/10 text-sky-600 dark:text-sky-400' },
+  recovered:         { label: 'Recovered', className: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' },
+  stopped:           { label: 'Stopped',   className: 'bg-stone-500/10 text-stone-600 dark:text-stone-400' },
+  failed:            { label: 'Failed',    className: 'bg-rose-500/10 text-rose-600 dark:text-rose-400' },
 };
+
+/** Statuses meaning "the agent is still working on this". */
+export const IN_FLIGHT: CaseStatus[] = ['open', 'in_progress', 'awaiting_response', 'promise_to_pay'];
 
 export const SEGMENT_LABELS: Record<string, string> = {
   consumer: 'Consumer', prosumer: 'Prosumer', smb: 'SMB', enterprise: 'Enterprise',

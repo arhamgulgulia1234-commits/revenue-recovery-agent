@@ -92,16 +92,24 @@ export function applyQuietHours(scheduledFor, { silent }) {
 
 /**
  * Run every gate for one proposed intervention.
+ *
+ * `notBefore` is the earliest the action may run whatever the matrix asked for:
+ * the previous action has to have finished, and its response window has to have
+ * closed, before the next one is allowed. It is applied *before* quiet hours,
+ * not after, because the order matters \u2014 flooring a time that quiet hours had
+ * already moved out of the night can push it straight back into it.
+ *
  * @returns {{allowed:boolean, stop?:object, scheduledFor:number, deferral?:object}}
  */
-export function screen({ customer, attemptsUsed, proposed, asOf }) {
+export function screen({ customer, attemptsUsed, proposed, asOf, notBefore = 0 }) {
   const hard = checkHardStop(customer, asOf);
   if (hard.stop) return { allowed: false, stop: hard, scheduledFor: proposed.scheduledFor };
 
   const cap = checkAttemptCap(attemptsUsed);
   if (cap.stop) return { allowed: false, stop: cap, scheduledFor: proposed.scheduledFor };
 
-  const quiet = applyQuietHours(proposed.scheduledFor, proposed);
+  const earliest = Math.max(proposed.scheduledFor, notBefore);
+  const quiet = applyQuietHours(earliest, proposed);
   return {
     allowed: true,
     scheduledFor: quiet.scheduledFor,

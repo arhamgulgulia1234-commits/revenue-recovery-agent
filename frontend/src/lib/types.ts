@@ -23,6 +23,11 @@ export type CaseDetail = {
     amount_at_risk_inr: number; recovered_amount_inr: number;
     attempts_used: number; opened_at: string; closed_at: string | null;
     closure_reason: string | null;
+    /** When the agent next looks at this case: a response deadline, a scheduled
+     *  send, or a promised payment date. Null once the case closes. */
+    next_action_at: string | null;
+    delivery_mode: 'simulated' | 'live';
+    contact_phone: string | null;
     decline_code: string; gateway_message: string; attempt_number: number;
     failed_at: string; plan_name: string | null; invoice_number: string | null;
     opted_out_at: string | null; disputed_at: string | null;

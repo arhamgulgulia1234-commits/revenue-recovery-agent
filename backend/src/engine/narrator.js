@@ -16,6 +16,7 @@
  */
 
 import { formatIst } from '../lib/time.js';
+import { POLICY } from '../lib/taxonomy.js';
 import { BUCKETS } from './classifier.js';
 import { ACTION_LABELS } from './matrix.js';
 
@@ -29,7 +30,7 @@ export const templateNarrator = {
   source: 'template',
 
   reason(eventType, ctx) {
-    const { customer, attempt, classification, action, outcome, stop, deferral, caseRow } = ctx;
+    const { customer, attempt, classification, action, outcome, stop, deferral, caseRow, expedite } = ctx;
 
     switch (eventType) {
       case 'case_opened':
@@ -75,6 +76,25 @@ export const templateNarrator = {
           `customer can hear waits until morning.`
         );
 
+      case 'first_action_expedited':
+        return (
+          `First outreach sent immediately at an operator's request, rather than at ` +
+          `${formatIst(expedite.matrixWanted)} where the intervention matrix scheduled it. ` +
+          `This affects the timing of this one message and nothing else: the failure's own ` +
+          `timestamp is unchanged, every later attempt keeps its real schedule, and the ` +
+          `${POLICY.RESPONSE_WINDOW_DAYS}-day response window that follows is real elapsed time. ` +
+          `Recorded here because the agent did not choose this timing.`
+        );
+
+      case 'response_window_opened':
+        return (
+          `${ACTION_LABELS[action.actionType]} sent to ${firstName(customer.name)} over ` +
+          `${action.channel}. The case now waits up to ${POLICY.RESPONSE_WINDOW_DAYS} days for a ` +
+          `response — until ${formatIst(ctx.deadline)} — and no further outreach goes out before ` +
+          `then. Escalating to the next attempt while the customer still has an unanswered ` +
+          `message in front of them would be chasing, not recovering.`
+        );
+
       case 'outcome_recorded': {
         const p = outcome.p;
         const odds = p.convert
@@ -83,7 +103,11 @@ export const templateNarrator = {
           : p.engage
             ? `Modelled at ${Math.round(p.engage * 100)}% chance of being seen.`
             : `Modelled at ${Math.round((p.success ?? 0) * 100)}% chance of authorisation.`;
-        return `${outcome.detail}. ${odds}`;
+        const window = outcome.engaged === false
+          ? ` The ${POLICY.RESPONSE_WINDOW_DAYS}-day response window closed with nothing back, `
+            + 'so the agent now decides whether to escalate or stop.'
+          : '';
+        return `${outcome.detail}. ${odds}${window}`;
       }
 
       case 'promise_recorded':

@@ -26,7 +26,6 @@
  */
 
 import { createScratchDb } from '../db/index.js';
-import { makeRandom } from '../lib/rng.js';
 import { iso, formatIst } from '../lib/time.js';
 import { DECLINE_CODES, POLICY } from '../lib/taxonomy.js';
 import { PLANS, INVOICE_ITEMS } from '../data/catalog.js';
@@ -292,8 +291,7 @@ export async function* runLive(realDb, input, { pause = () => Promise.resolve(),
   if (invoice) insert(scratch, 'invoices', invoice);
   insert(scratch, 'payment_attempts', attempt);
 
-  const rand = makeRandom(input.seed);
-  const runner = createRunner({ db: scratch, rand, now });
+  const runner = createRunner({ db: scratch, seed: input.seed, now });
   const caseRow = runner.runCase({
     attempt, customer, subscription, invoice, attemptsUsed: input.attemptsUsed,
   });

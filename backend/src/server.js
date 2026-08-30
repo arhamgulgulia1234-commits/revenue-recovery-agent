@@ -8,6 +8,11 @@ import { casesRouter } from './routes/cases.js';
 import { insightsRouter } from './routes/insights.js';
 import { comparisonRouter } from './routes/comparison.js';
 import { simulateRouter } from './routes/simulate.js';
+import { schedulerRouter } from './routes/scheduler.js';
+import { liveRouter } from './routes/live.js';
+import { startScheduler } from './engine/scheduler.js';
+import { anchorPinned } from './lib/clock.js';
+import { configSummary } from './lib/twilio.js';
 
 const app = express();
 
@@ -38,7 +43,10 @@ app.use(express.json());
 app.get('/health', (req, res) => {
   const db = getDb();
   const seeded = db.prepare('SELECT COUNT(*) AS n FROM payment_attempts').get().n;
-  res.json({ ok: true, db: DB_PATH, seededFailures: seeded, policy: POLICY });
+  res.json({
+    ok: true, db: DB_PATH, seededFailures: seeded, policy: POLICY,
+    whatsapp: configSummary(),
+  });
 });
 
 app.use('/api/portfolio', portfolioRouter);
@@ -46,6 +54,8 @@ app.use('/api/cases', casesRouter);
 app.use('/api/insights', insightsRouter);
 app.use('/api/comparison', comparisonRouter);
 app.use('/api/simulate', simulateRouter);
+app.use('/api/scheduler', schedulerRouter);
+app.use('/api/live', liveRouter);
 
 app.use((req, res) => res.status(404).json({ error: 'not_found', path: req.path }));
 app.use((err, req, res, _next) => {
@@ -59,4 +69,18 @@ app.listen(port, '0.0.0.0', () => {
   console.log(`  API listening on port ${port}`);
   console.log(`  DB ${DB_PATH}`);
   console.log(`  CORS: ${allowed.length ? allowed.join(', ') : 'open (development)'}`);
+
+  /**
+   * Cases wait on real deadlines now, so something has to come back and look at
+   * them when those deadlines pass. This is that something.
+   *
+   * Simulated cases are judged against the pinned SEED_NOW and therefore never
+   * come due — a server left running overnight cannot walk the demo book forward
+   * and move the numbers on the dashboard. Live cases run on the wall clock,
+   * which is the only clock a real customer is on.
+   */
+  const interval = Number(process.env.SCHEDULER_INTERVAL_MS) || 60000;
+  startScheduler(getDb(), { intervalMs: interval });
+  console.log(`  Scheduler: every ${Math.round(interval / 1000)}s` +
+    (anchorPinned() ? ' (simulated cases pinned to SEED_NOW)' : ''));
 });

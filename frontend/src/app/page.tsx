@@ -343,7 +343,13 @@ export default async function Page() {
 
 function StatusBadge({ status }: { status: CaseStatus | null }) {
   if (!status) return <span className="text-muted text-xs">not processed</span>;
-  const d = STATUS_DISPLAY[status];
+  // Falls back rather than indexing blind: a status the API knows about and this
+  // map does not should render plainly, not take the whole dashboard down with
+  // `undefined.className`.
+  const d = STATUS_DISPLAY[status] ?? {
+    label: String(status).replace(/_/g, ' '),
+    className: 'bg-stone-500/10 text-stone-600 dark:text-stone-400',
+  };
   return (
     <span className={`text-xs rounded px-2 py-0.5 font-medium ${d.className}`}>{d.label}</span>
   );
