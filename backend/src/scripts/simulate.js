@@ -25,7 +25,8 @@ if (existing > 0) {
 }
 
 const attempts = db.prepare(`
-  SELECT * FROM payment_attempts WHERE status = 'failed' ORDER BY created_at ASC`).all();
+  SELECT * FROM payment_attempts
+   WHERE status = 'failed' AND source = 'seed' ORDER BY created_at ASC`).all();
 
 const getCustomer = db.prepare('SELECT * FROM customers WHERE id = ?');
 const getSub = db.prepare('SELECT * FROM subscriptions WHERE id = ?');

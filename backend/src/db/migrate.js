@@ -18,14 +18,23 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /** Columns added after the first release, per table. */
 const ADDED_COLUMNS = {
+  payment_attempts: {
+    source: "TEXT NOT NULL DEFAULT 'seed'",
+  },
   recovery_cases: {
     next_action_at: 'TEXT',
     awaiting_log_id: 'TEXT',
     delivery_mode: "TEXT NOT NULL DEFAULT 'simulated'",
+    contact_phone: 'TEXT',
   },
   intervention_logs: {
     response_deadline_at: 'TEXT',
     responded_at: 'TEXT',
+    delivery_status: "TEXT NOT NULL DEFAULT 'simulated'",
+    provider_message_id: 'TEXT',
+    delivered_to: 'TEXT',
+    delivered_at: 'TEXT',
+    delivery_error: 'TEXT',
   },
 };
 

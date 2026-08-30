@@ -12,7 +12,8 @@ export function buildComparison(db) {
 
   const cases = db.prepare(`
     SELECT rc.*, c.name AS customer_name FROM recovery_cases rc
-    JOIN customers c ON c.id = rc.customer_id`).all();
+    JOIN customers c ON c.id = rc.customer_id
+    WHERE rc.delivery_mode = 'simulated'`).all();
 
   // A "contact" is an intervention the customer can perceive. Silent retries
   // notify nobody, so they are not contact — that distinction is the whole
