@@ -4,7 +4,6 @@
  */
 import '../lib/env.js';
 import { getDb } from '../db/index.js';
-import { makeRandom } from '../lib/rng.js';
 import { createRunner } from '../engine/runner.js';
 import { iso } from '../lib/time.js';
 import { BUCKETS } from '../engine/classifier.js';
@@ -15,7 +14,6 @@ const pct = (n) => (n * 100).toFixed(1) + '%';
 
 const db = getDb();
 const seed = Number(process.env.SEED) || 20260829;
-const rand = makeRandom(seed + 7);
 // Must match the seed run's anchor, or cases that were scheduled into the
 // future would be judged against a different present.
 const now = process.env.SEED_NOW ? new Date(process.env.SEED_NOW).getTime() : Date.now();
@@ -37,7 +35,7 @@ const runId = `run_${Date.now().toString(36)}`;
 db.prepare('INSERT INTO engine_runs (id,started_at,cases_processed,notes) VALUES (?,?,0,?)')
   .run(runId, iso(now), `seed=${seed}`);
 
-const runner = createRunner({ db, rand, now });
+const runner = createRunner({ db, seed, now });
 const results = [];
 
 const batch = db.transaction(() => {
@@ -66,7 +64,7 @@ const totals = q1(`
          SUM(amount_at_risk_inr) at_risk,
          SUM(recovered_amount_inr) recovered,
          SUM(status='recovered') n_recovered,
-         SUM(status IN ('in_progress','promise_to_pay')) n_retrying,
+         SUM(status IN ('in_progress','awaiting_response','promise_to_pay')) n_retrying,
          SUM(status='stopped') n_stopped
   FROM recovery_cases`);
 
@@ -83,7 +81,7 @@ console.log(`  ${'root cause'.padEnd(20)} ${'n'.padStart(3)} ${'rec'.padStart(4)
 for (const r of q(`
   SELECT root_cause, COUNT(*) n,
          SUM(status='recovered') rec,
-         SUM(status IN ('in_progress','promise_to_pay')) retry,
+         SUM(status IN ('in_progress','awaiting_response','promise_to_pay')) retry,
          SUM(status='stopped') stop
   FROM recovery_cases GROUP BY root_cause ORDER BY n DESC`)) {
   console.log(`  ${BUCKETS[r.root_cause].label.padEnd(20)} ${String(r.n).padStart(3)} ${String(r.rec).padStart(4)} ${String(r.retry).padStart(6)} ${String(r.stop).padStart(5)}  ${pct(r.rec / r.n).padStart(6)}`);

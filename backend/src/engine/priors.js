@@ -26,6 +26,9 @@ export function smoothRate(recovered, total, globalRate, k = SMOOTHING) {
  */
 const EXCLUDED_CLOSURES = new Set(['customer_opted_out', 'customer_disputed']);
 
+/** Statuses that mean the case has not landed either way yet. */
+const IN_FLIGHT = new Set(['open', 'in_progress', 'awaiting_response', 'promise_to_pay']);
+
 /**
  * Every case the agent was allowed to work, whatever its current status.
  *
@@ -88,7 +91,7 @@ export function buildPriors(db) {
   return {
     globalRate,
     sampleSize: usable.length,
-    settled: usable.filter((c) => c.status !== 'in_progress' && c.status !== 'promise_to_pay').length,
+    settled: usable.filter((c) => !IN_FLIGHT.has(c.status)).length,
     excluded: cases.length - usable.length,
     byRootCause,
     bySegment,

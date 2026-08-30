@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { migrate } from './migrate.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -18,6 +19,13 @@ export function getDb() {
   _db = new Database(DB_PATH);
   _db.pragma('journal_mode = WAL');
   _db.pragma('foreign_keys = ON');
+  // Migrate first, create second. `CREATE TABLE IF NOT EXISTS` is a no-op on a
+  // table that already exists, so an old book would otherwise reach the index
+  // and constraint statements below with columns those statements need still
+  // missing. On a fresh database there is nothing to migrate and this no-ops.
+  const applied = migrate(_db);
+  if (applied.length) console.log(`  DB migrated: ${applied.join(', ')}`);
+
   _db.exec(fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8'));
   return _db;
 }

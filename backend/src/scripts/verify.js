@@ -79,11 +79,59 @@ check('Every case has a root cause', unclassified.length === 0,
   unclassified.map((c) => c.id).join(', '));
 
 const unnarrated = all(`
-  SELECT l.id, l.case_id FROM intervention_logs l WHERE l.executed_at IS NOT NULL
+  SELECT l.id, l.case_id FROM intervention_logs l
+   WHERE l.executed_at IS NOT NULL AND l.outcome IS NOT NULL
     AND NOT EXISTS (SELECT 1 FROM audit_entries a
                      WHERE a.case_id = l.case_id AND a.event_type = 'outcome_recorded')`);
-check('Every executed intervention has an outcome audit entry', unnarrated.length === 0,
+check('Every resolved intervention has an outcome audit entry', unnarrated.length === 0,
   unnarrated.slice(0, 5).map((l) => l.case_id).join(', '));
+
+// An intervention with no outcome is only legitimate while its response window
+// is still open, and only on a case that says it is waiting for exactly that
+// one. Anything else is an intervention the agent sent and then forgot about.
+const dangling = all(`
+  SELECT l.id, l.case_id, rc.status FROM intervention_logs l
+    JOIN recovery_cases rc ON rc.id = l.case_id
+   WHERE l.executed_at IS NOT NULL AND l.outcome IS NULL
+     AND NOT (rc.status = 'awaiting_response' AND rc.awaiting_log_id = l.id
+              AND l.response_deadline_at IS NOT NULL)`);
+check('Every unresolved intervention has an open response window',
+  dangling.length === 0,
+  dangling.slice(0, 5).map((l) => `${l.case_id}=${l.status}`).join(', '));
+
+// The point of the whole waiting state: an outreach and its follow-up are a
+// real number of days apart, not the same instant.
+const window = POLICY.RESPONSE_WINDOW_MS;
+const rushed = all(`
+  SELECT l.id, l.case_id, l.sequence, l.executed_at, l.response_deadline_at, l.responded_at
+    FROM intervention_logs l
+   WHERE l.channel != 'none' AND l.executed_at IS NOT NULL`)
+  .filter((l) => !l.response_deadline_at
+    || new Date(l.response_deadline_at) - new Date(l.executed_at) !== window
+    || (l.responded_at && new Date(l.responded_at) < new Date(l.executed_at)));
+check(`Every outreach opened a full ${POLICY.RESPONSE_WINDOW_DAYS}-day response window`,
+  rushed.length === 0, rushed.slice(0, 5).map((l) => `${l.case_id}#${l.sequence}`).join(', '));
+
+// Silence has to cost the full window. A 'no_response' recorded before the
+// deadline would mean the agent gave up early and called it a non-answer.
+const earlyGiveUp = all(`
+  SELECT case_id, sequence FROM intervention_logs
+   WHERE outcome = 'no_response' AND response_deadline_at IS NOT NULL
+     AND responded_at < response_deadline_at`);
+check('No outreach was written off as unanswered before its window closed',
+  earlyGiveUp.length === 0,
+  earlyGiveUp.slice(0, 5).map((l) => `${l.case_id}#${l.sequence}`).join(', '));
+
+// The next attempt may not be scheduled until the previous one was answered —
+// by a response inside the window, or by the window running out.
+const overlapping = all(`
+  SELECT a.case_id, a.sequence FROM intervention_logs a
+    JOIN intervention_logs b ON b.case_id = a.case_id AND b.sequence = a.sequence + 1
+   WHERE a.executed_at IS NOT NULL AND a.responded_at IS NOT NULL
+     AND b.scheduled_for < a.responded_at`);
+check('No intervention is scheduled before the previous one was answered',
+  overlapping.length === 0,
+  overlapping.slice(0, 5).map((l) => `${l.case_id}#${l.sequence}`).join(', '));
 
 const emptyReasoning = all(
   `SELECT id, event_type FROM audit_entries WHERE reasoning_text IS NULL OR length(reasoning_text) < 20`);

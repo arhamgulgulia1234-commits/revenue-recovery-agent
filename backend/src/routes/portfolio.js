@@ -36,7 +36,7 @@ portfolioRouter.get('/stats', (req, res) => {
              COALESCE(SUM(recovered_amount_inr), 0) AS recovered_inr,
              COALESCE(SUM(amount_at_risk_inr), 0) AS at_risk_inr,
              SUM(status = 'recovered') AS n_recovered,
-             SUM(status IN ('in_progress', 'promise_to_pay')) AS n_retrying,
+             SUM(status IN ('in_progress','awaiting_response','promise_to_pay')) AS n_retrying,
              SUM(status = 'stopped') AS n_stopped,
              ROUND(AVG(CASE WHEN status = 'recovered'
                        THEN julianday(closed_at) - julianday(opened_at) END), 1) AS avg_days_to_recovery
@@ -48,7 +48,7 @@ portfolioRouter.get('/stats', (req, res) => {
     byRootCause: all(`
       SELECT root_cause, COUNT(*) AS n,
              SUM(status = 'recovered') AS recovered,
-             SUM(status IN ('in_progress','promise_to_pay')) AS retrying,
+             SUM(status IN ('in_progress','awaiting_response','promise_to_pay')) AS retrying,
              SUM(status = 'stopped') AS stopped,
              SUM(recovered_amount_inr) AS recovered_inr
       FROM recovery_cases GROUP BY root_cause ORDER BY n DESC`),

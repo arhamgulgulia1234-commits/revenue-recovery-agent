@@ -99,11 +99,39 @@ export const SEGMENTS = ['consumer', 'prosumer', 'smb', 'enterprise'];
 /** Compliance policy. Enforced by the engine, surfaced on the dashboard. */
 export const POLICY = {
   MAX_ATTEMPTS_PER_CASE: 3,
-  QUIET_HOURS: { startHour: 21, endHour: 8 }, // 21:00–08:00 local, no outreach
-  QUIET_HOURS_LABEL: '9:00 PM – 8:00 AM IST',
+  QUIET_HOURS: { startHour: 21, endHour: 8 }, // 21:00\u201308:00 local, no outreach
+  QUIET_HOURS_LABEL: '9:00 PM \u2013 8:00 AM IST',
   // Hard stops that can never be reversed by the agent.
   PERMANENT_STOP_REASONS: ['customer_opted_out', 'customer_disputed'],
+
+  /**
+   * How long the agent waits for the customer to respond to an outreach before
+   * it concludes there was no response and decides what to do next.
+   *
+   * This is the difference between an agent and a loop. Sending three messages
+   * in the same instant and declaring failure is not three attempts \u2014 it is one
+   * attempt reported three times. A real recovery sequence sends, waits a real
+   * number of days, and only then escalates.
+   *
+   * Silent retries have no window: nobody is being asked to respond, and the
+   * gateway answers immediately.
+   */
+  RESPONSE_WINDOW_DAYS: Number(process.env.RESPONSE_WINDOW_DAYS) || 3,
 };
+
+POLICY.RESPONSE_WINDOW_MS = POLICY.RESPONSE_WINDOW_DAYS * 86400000;
+
+/**
+ * When a positive response lands inside the window.
+ *
+ * The window is the deadline, not the expected arrival: someone who pays a
+ * WhatsApp link pays soon after reading it, not three days later. A third of the
+ * way in is a deliberate, deterministic stand-in for the real timestamp \u2014 which
+ * the live path (Stage 4) reads off the payment webhook instead of guessing.
+ * Deterministic on purpose: drawing it would consume a random number and shift
+ * every downstream outcome in the seeded batch.
+ */
+POLICY.SIMULATED_RESPONSE_FRACTION = 1 / 3;
 
 export function isQuietHour(hour) {
   const { startHour, endHour } = POLICY.QUIET_HOURS;

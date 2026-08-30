@@ -1,8 +1,11 @@
 import { Router } from 'express';
 import { getDb } from '../db/index.js';
+import { POLICY } from '../lib/taxonomy.js';
 import { scoreCases } from '../engine/score-service.js';
 import { PROVIDER, MODEL } from '../engine/llm-narrator.js';
 import { buildTimeline } from '../engine/timeline.js';
+import { advance } from '../engine/scheduler.js';
+import { nowFor } from '../lib/clock.js';
 
 export const casesRouter = Router();
 
@@ -78,6 +81,19 @@ casesRouter.get('/stopped', (req, res) => {
 /** Full decision history for one case: interventions and audit trail, in order. */
 casesRouter.get('/:id', (req, res) => {
   const db = getDb();
+
+  // Bring the case up to date before reading it. The timer sweep would get here
+  // eventually, but "eventually" is the wrong answer to someone looking at the
+  // case right now — a window that expired an hour ago should not still be shown
+  // as open. Advancing is idempotent and only ever acts on a deadline that has
+  // genuinely passed, so doing it on read costs nothing when there is no work.
+  try {
+    advance(db, req.params.id);
+  } catch {
+    // A case that cannot be advanced is still a case worth showing. Fall
+    // through and render whatever is on the row.
+  }
+
   const c = db.prepare(`
     SELECT rc.*, cu.name AS customer_name, cu.segment, cu.phone, cu.email,
            cu.reliability_score, cu.preferred_channel, cu.salary_day,
@@ -103,9 +119,26 @@ casesRouter.get('/:id', (req, res) => {
 
   const [scored] = scoreCases(db, [c]).scored;
 
+  // The open response window, if there is one, as the UI needs to state it:
+  // when it closes and how long is left on the clock this case actually runs on.
+  const waitingOn = c.status === 'awaiting_response' && c.awaiting_log_id
+    ? interventions.find((i) => i.id === c.awaiting_log_id) ?? null
+    : null;
+  const responseWindow = waitingOn ? {
+    interventionId: waitingOn.id,
+    sequence: waitingOn.sequence,
+    sentAt: waitingOn.executed_at,
+    expiresAt: waitingOn.response_deadline_at,
+    windowDays: POLICY.RESPONSE_WINDOW_DAYS,
+    msRemaining: Math.max(
+      0,
+      new Date(waitingOn.response_deadline_at).getTime() - nowFor(c.delivery_mode)),
+  } : null;
+
   res.json({
     case: { ...c, recovery_score: scored.recovery_score, score_band: scored.score_band,
             score_explanation: scored.score_explanation },
+    responseWindow,
     interventions,
     audit,
     promises,
