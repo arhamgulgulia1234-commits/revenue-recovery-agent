@@ -71,27 +71,42 @@ export type CaseStatus =
   | 'open' | 'in_progress' | 'awaiting_response' | 'promise_to_pay'
   | 'recovered' | 'stopped' | 'failed';
 
+/**
+ * Every case status maps to exactly one of the three status colors — recovered
+ * (emerald), stopped (slate), or pending (amber) — so the same three colors
+ * that appear on charts and timeline dots are the only ones a status badge
+ * ever uses. `open` renders in the neutral/pending family since it is just
+ * "not yet acted on", not a distinct fourth color.
+ */
 export const STATUS_DISPLAY: Record<CaseStatus, { label: string; className: string }> = {
-  open:              { label: 'Open',      className: 'bg-stone-500/10 text-stone-600 dark:text-stone-400' },
-  in_progress:       { label: 'Retrying',  className: 'bg-amber-500/10 text-amber-600 dark:text-amber-400' },
-  awaiting_response: { label: 'Awaiting reply', className: 'bg-violet-500/10 text-violet-600 dark:text-violet-400' },
-  promise_to_pay:    { label: 'Promised',  className: 'bg-sky-500/10 text-sky-600 dark:text-sky-400' },
-  recovered:         { label: 'Recovered', className: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' },
-  stopped:           { label: 'Stopped',   className: 'bg-stone-500/10 text-stone-600 dark:text-stone-400' },
-  failed:            { label: 'Failed',    className: 'bg-rose-500/10 text-rose-600 dark:text-rose-400' },
+  open:              { label: 'Open',          className: 'bg-pending/10 text-pending' },
+  in_progress:       { label: 'Retrying',       className: 'bg-pending/10 text-pending' },
+  awaiting_response: { label: 'Awaiting reply', className: 'bg-pending/10 text-pending' },
+  promise_to_pay:    { label: 'Promised',       className: 'bg-pending/10 text-pending' },
+  recovered:         { label: 'Recovered',      className: 'bg-recovered/10 text-recovered' },
+  stopped:           { label: 'Stopped',        className: 'bg-stopped/10 text-stopped' },
+  failed:            { label: 'Failed',         className: 'bg-alert/10 text-alert' },
 };
 
 /** Statuses meaning "the agent is still working on this". */
 export const IN_FLIGHT: CaseStatus[] = ['open', 'in_progress', 'awaiting_response', 'promise_to_pay'];
 
+/** The same three-color language, as a left-edge row accent for tables. */
+export const STATUS_BORDER: Record<CaseStatus, string> = {
+  open: 'border-l-pending', in_progress: 'border-l-pending',
+  awaiting_response: 'border-l-pending', promise_to_pay: 'border-l-pending',
+  recovered: 'border-l-recovered', stopped: 'border-l-stopped', failed: 'border-l-alert',
+};
+
 export const SEGMENT_LABELS: Record<string, string> = {
   consumer: 'Consumer', prosumer: 'Prosumer', smb: 'SMB', enterprise: 'Enterprise',
 };
 
+/** Likelihood is a different axis from status — its own red/amber/green read. */
 export const SCORE_BAND_STYLES: Record<string, string> = {
-  High:   'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-  Medium: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
-  Low:    'bg-rose-500/10 text-rose-600 dark:text-rose-400',
+  High:   'bg-recovered/10 text-recovered',
+  Medium: 'bg-pending/10 text-pending',
+  Low:    'bg-alert/10 text-alert',
 };
 
 export type Insights = {

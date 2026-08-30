@@ -1,22 +1,55 @@
 @import "tailwindcss";
 
 :root {
-  --background: #fafaf9;
-  --foreground: #1c1917;
-  --muted: #78716c;
+  /* Neutrals — warm stone, not default cold gray/slate. */
+  --background: #faf9f7;
+  --foreground: #1c1a17;
+  --muted: #79726a;
+  --muted-2: #a39c93;
   --card: #ffffff;
-  --border: #e7e5e4;
-  --accent: #3b82f6;
+  --card-2: #f3f1ed;
+  --border: #e8e4dd;
+
+  /* Brand — the one signature accent. Doubles as the "AI/diagnosis" color,
+     so the mark carries the product's actual value prop, not a generic hue. */
+  --brand: #6d28d9;
+  --brand-soft: #6d28d9;
+  --on-brand: #ffffff;
+
+  /* Status language — used identically everywhere: badges, timeline dots,
+     table cells, chart segments. Three colors, three meanings, no exceptions. */
+  --recovered: #059669;
+  --pending: #b45309;
+  --stopped: #57616f;
+
+  /* Secondary semantics — never used for case status, only for their own
+     narrower meaning (a hard compliance flag, an outbound message). */
+  --alert: #e11d48;
+  --comms: #0284c7;
+
+  --shadow-color: 220 20% 15%;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0c0a09;
-    --foreground: #fafaf9;
-    --muted: #a8a29e;
+    --background: #131110;
+    --foreground: #f7f4f0;
+    --muted: #a39a90;
+    --muted-2: #756c63;
     --card: #1c1917;
-    --border: #292524;
-    --accent: #60a5fa;
+    --card-2: #221f1c;
+    --border: #322d28;
+
+    --brand: #a78bfa;
+    --brand-soft: #a78bfa;
+    --on-brand: #1c1a17;
+
+    --recovered: #34d399;
+    --pending: #fbbf24;
+    --stopped: #94a3b8;
+
+    --alert: #fb7185;
+    --comms: #38bdf8;
   }
 }
 
@@ -24,15 +57,67 @@
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-muted: var(--muted);
+  --color-muted-2: var(--muted-2);
   --color-card: var(--card);
+  --color-card-2: var(--card-2);
   --color-border: var(--border);
-  --color-accent: var(--accent);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+
+  --color-brand: var(--brand);
+  --color-on-brand: var(--on-brand);
+  --color-recovered: var(--recovered);
+  --color-pending: var(--pending);
+  --color-stopped: var(--stopped);
+  --color-alert: var(--alert);
+  --color-comms: var(--comms);
+
+  /* Kept so any lingering `text-accent` / `bg-accent` reads as the brand color. */
+  --color-accent: var(--brand);
+
+  --font-sans: var(--font-plex-sans);
+  --font-mono: var(--font-plex-mono);
+
+  --animate-reveal: reveal 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-shimmer: shimmer 1.6s ease-in-out infinite;
+}
+
+@keyframes reveal {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, var(--card-2) 25%, var(--border) 50%, var(--card-2) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.6s ease-in-out infinite;
 }
