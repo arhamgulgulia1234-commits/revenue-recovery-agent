@@ -28,6 +28,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <Link href="/stopped" className="text-muted hover:text-foreground transition-colors">
                 Where we stopped
               </Link>
+              <Link href="/simulate" className="text-muted hover:text-foreground transition-colors">
+                Simulate a failure
+              </Link>
             </nav>
           </div>
         </header>

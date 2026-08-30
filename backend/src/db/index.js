@@ -22,6 +22,23 @@ export function getDb() {
   return _db;
 }
 
+/**
+ * A throwaway database, schema and all, that lives only in this process.
+ *
+ * The live simulator runs the real engine over one hand-entered failure. That
+ * engine writes cases, interventions and audit rows as it goes — which is the
+ * point, it is the same code path as the batch — but those rows must not land
+ * in the real book, where they would move the dashboard totals and the priors
+ * every score is measured against. Giving it its own empty database is cheaper
+ * and far safer than teaching the runner not to persist.
+ */
+export function createScratchDb() {
+  const db = new Database(':memory:');
+  db.pragma('foreign_keys = ON');
+  db.exec(fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8'));
+  return db;
+}
+
 /** Drop every table. Used by `npm run reset` so demos start from a clean slate. */
 export function resetDb() {
   const db = getDb();

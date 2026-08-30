@@ -55,8 +55,16 @@ export function createRunner({ db, rand, narrator = templateNarrator, now = Date
       `UPDATE customers SET opted_out_at=COALESCE(opted_out_at,@opted), disputed_at=COALESCE(disputed_at,@disputed) WHERE id=@id`),
   };
 
-  /** Process one failed payment attempt end to end. */
-  function runCase({ attempt, customer, subscription, invoice }) {
+  /**
+   * Process one failed payment attempt end to end.
+   *
+   * `attemptsUsed` is how many interventions this case has already spent — 0 for
+   * everything in the batch, since the batch opens every case from scratch. The
+   * live simulator sets it higher to start a case mid-sequence, which is also
+   * the only way to reach the attempt cap at pre-screen rather than after the
+   * loop has run.
+   */
+  function runCase({ attempt, customer, subscription, invoice, attemptsUsed: startAttempts = 0 }) {
     const caseId = nextId('case', 'case');
     const openedAt = new Date(attempt.created_at).getTime();
     let auditSeq = 0;
@@ -86,7 +94,7 @@ export function createRunner({ db, rand, narrator = templateNarrator, now = Date
       root_cause_confidence: null,
       amount_at_risk_inr: attempt.amount_inr,
       status: 'open',
-      attempts_used: 0,
+      attempts_used: startAttempts,
       opened_at: iso(openedAt),
       closed_at: null,
       closure_reason: null,
@@ -112,11 +120,15 @@ export function createRunner({ db, rand, narrator = templateNarrator, now = Date
     };
 
     // -- Hard stops, before any action ---------------------------------------
-    const preScreen = screen({ customer, attemptsUsed: 0, proposed: { scheduledFor: openedAt, silent: true }, asOf: openedAt });
+    const preScreen = screen({ customer, attemptsUsed: startAttempts, proposed: { scheduledFor: openedAt, silent: true }, asOf: openedAt });
     if (!preScreen.allowed) {
       closeWith('stopped', preScreen.stop.reason, 0, openedAt);
       audit('case_stopped', `Stopped — ${STOP_REASONS[preScreen.stop.reason]}`,
-        { stop: preScreen.stop, caseRow, policyRefs: 'hard_stop' }, openedAt);
+        { stop: preScreen.stop, caseRow,
+          // A case that opens already at the cap stops for the cap, not for a
+          // hard stop — the two are counted separately everywhere downstream.
+          policyRefs: preScreen.stop.reason === 'max_attempts_reached' ? 'attempt_cap' : 'hard_stop' },
+        openedAt);
       return caseRow;
     }
 
@@ -124,7 +136,7 @@ export function createRunner({ db, rand, narrator = templateNarrator, now = Date
     // noticed — "day 7" has to mean 7 days past due to mean anything.
     const anchor = invoice ? new Date(invoice.due_at).getTime() : openedAt;
 
-    let attemptsUsed = 0;
+    let attemptsUsed = startAttempts;
     let lastActionAt = openedAt;
     caseRow.status = 'in_progress';
 
