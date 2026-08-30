@@ -20,7 +20,10 @@ export default async function CasePage({ params }: { params: Promise<{ id: strin
   }
 
   const c = data.case;
-  const status = STATUS_DISPLAY[c.status as CaseStatus];
+  const status = STATUS_DISPLAY[c.status as CaseStatus] ?? {
+    label: String(c.status).replace(/_/g, ' '),
+    className: 'bg-stone-500/10 text-stone-600 dark:text-stone-400',
+  };
   const stopped = c.status === 'stopped';
   const hardStop = c.closure_reason?.includes('opted_out') || c.closure_reason?.includes('disputed');
 
@@ -93,11 +96,18 @@ export default async function CasePage({ params }: { params: Promise<{ id: strin
             <h3 className="font-semibold text-sm">
               {c.status === 'recovered' && `Recovered — ${inr(c.recovered_amount_inr)}`}
               {stopped && `Stopped by policy — ${CLOSURE_LABELS[c.closure_reason ?? ''] ?? c.closure_reason}`}
-              {(c.status === 'in_progress' || c.status === 'promise_to_pay') && 'Still retrying'}
+              {c.status === 'awaiting_response' && 'Awaiting a reply'}
+              {(c.status === 'open' || c.status === 'in_progress' || c.status === 'promise_to_pay') && 'Still retrying'}
             </h3>
             <p className="text-sm text-muted mt-1.5 leading-relaxed max-w-3xl">
               {stopped ? stopCopy(c.closure_reason) : c.status === 'recovered'
                 ? `Closed ${istDateTime(c.closed_at!)} after ${c.attempts_used} intervention${c.attempts_used === 1 ? '' : 's'}.`
+                : c.status === 'awaiting_response'
+                // Distinct from "not due yet": the message has gone out and the
+                // agent is deliberately not acting until the window closes.
+                ? `The last message has been sent and the response window is still open${
+                    c.next_action_at ? ` until ${istDateTime(c.next_action_at)}` : ''
+                  }. The agent takes no further action until it closes. ${c.attempts_used} of 3 attempts used.`
                 : `The next intervention is scheduled and has not come due yet. ${c.attempts_used} of 3 attempts used.`}
             </p>
           </div>
