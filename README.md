@@ -42,7 +42,9 @@ npm run demo      # reset + seed the synthetic book
 npm run dev       # backend :4000 + frontend :3000
 ```
 
-Open <http://localhost:3000>. To deploy, see **[DEPLOY.md](DEPLOY.md)**.
+Open <http://localhost:3000>, or <http://localhost:3000/simulate> to run a
+failure of your own through the agent live. To deploy, see
+**[DEPLOY.md](DEPLOY.md)**.
 
 | Script | What it does |
 |---|---|
@@ -114,6 +116,55 @@ Root-cause classification and the intervention matrix are **plain rules**. A
 recovery decision that touches someone's money should be deterministic,
 reproducible, and explainable without re-running a model. The LLM explains and
 communicates the decision; it does not make it.
+
+---
+
+## Live simulator — `/simulate`
+
+A control panel for demoing the agent on a case you invent on the spot. Type a
+customer, segment, amount, decline code and which attempt this is; optionally
+flag the customer as opted-out or disputed. Press run and the case is worked
+**live**, one stage at a time:
+
+| | Stage | Who decides |
+|---|---|---|
+| 1 | Root cause | `classifier.js` — a lookup table |
+| 2 | Recovery likelihood | `scorer.js` + priors counted off the batch |
+| 3 | Recovery action | `matrix.js`, screened by `policy.js` — **can stop the case here** |
+| 4 | Response | the LLM narrator — the only stage that calls a model |
+| 5 | Outcome | `outcomes.js`, rolled against the same probability tables |
+
+The stage order is the argument. Stages 1–3 are pure rules; by the time the
+model runs at stage 4 the decision is already a row in a database, and the panel
+labels each stage with where its text came from so that is checkable rather than
+claimed.
+
+**It reuses the engine rather than mirroring it.** `engine/live-run.js` imports
+the same classifier, matrix, gates, scorer, narrator and outcome tables the
+batch uses, and calls `createRunner().runCase()` — the actual agent loop. It
+assembles inputs and reads results back out; it re-implements nothing. The
+frontend holds no copy of any of it and only renders an event stream.
+
+**Nothing is persisted.** The runner writes as it goes, so it is handed a
+throwaway in-memory SQLite database with the same schema. The real book is read
+for the priors and the customer roster, never written — a demo run cannot move
+the dashboard's numbers.
+
+Two details worth knowing before demoing it:
+
+- **The failure is back-dated** (24 days, or 50 for an invoice). The agent
+  schedules real interventions days apart — up to day 30 for an invoice — and
+  stops at the first one not yet due. A failure stamped "just now" would always
+  end at *scheduled, not yet due* and never reach an outcome.
+- **The outcome is a fresh draw** each run, from the same tables as the batch.
+  The same inputs will not always land the same way; the seed is shown on the
+  final card.
+
+The stopping rules are the thing it demonstrates best. Set the flag to **opted
+out** or **disputed**, or the attempt to **cap reached**, and the run halts at
+stage 3 with stages 4 and 5 visibly never running — no action chosen, no message
+written, nothing sent. Streamed over SSE (`POST /api/simulate/stream`), so the
+pause at stage 4 is the model call actually happening.
 
 ---
 
@@ -298,6 +349,7 @@ It is also in-sample — at 80 cases there is no held-out set.
 - [x] Needs-attention triage ranked by expected loss, and an insights panel
 - [x] LLM narrator (Groq or Anthropic) as a second pass over decided cases
 - [x] Case timeline drill-down with the full decision story
+- [x] Live simulator — hand-enter a failure and watch the real pipeline work it stage by stage
 - [ ] Dedicated stopped-case compliance view
 - [x] Naive baseline comparison (46.3% vs 32.5%)
 - [ ] Deploy — see [DEPLOY.md](DEPLOY.md)

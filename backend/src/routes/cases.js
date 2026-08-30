@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { getDb } from '../db/index.js';
 import { scoreCases } from '../engine/score-service.js';
 import { PROVIDER, MODEL } from '../engine/llm-narrator.js';
+import { buildTimeline } from '../engine/timeline.js';
 
 export const casesRouter = Router();
 
@@ -114,28 +115,3 @@ casesRouter.get('/:id', (req, res) => {
     timeline: buildTimeline(audit, interventions),
   });
 });
-
-/**
- * Stitch the audit trail and the intervention log into one ordered story.
- *
- * The runner emits exactly one `intervention_selected` entry per intervention,
- * in order, so the Nth such entry is intervention sequence N — that pairing is
- * done here rather than in the UI, where a mismatch would be invisible.
- */
-function buildTimeline(audit, interventions) {
-  const bySequence = new Map(interventions.map((i) => [i.sequence, i]));
-  let selected = 0;
-  let current = null;
-
-  return audit.map((a) => {
-    if (a.event_type === 'intervention_selected') {
-      selected += 1;
-      current = bySequence.get(selected) ?? null;
-      return { ...a, intervention: current, attemptNumber: selected };
-    }
-    if (a.event_type === 'outcome_recorded') {
-      return { ...a, intervention: current, attemptNumber: selected };
-    }
-    return { ...a, intervention: null, attemptNumber: null };
-  });
-}

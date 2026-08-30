@@ -56,9 +56,15 @@ Skip this and the deployment still works — it just shows template prose.
 
 **Do not set `PORT`.** Render injects it and the server reads it.
 
-**`GROQ_API_KEY` is not needed here.** With `narration.json` committed the
-deployed backend never calls Groq. Add it only if you want to run `npm run
-narrate` against the deployed instance — fewer copies of a secret is better.
+**`GROQ_API_KEY` is optional here.** With `narration.json` committed, the batch
+never calls Groq — the dashboard and every case timeline show model-written prose
+with zero API calls at boot.
+
+Set it only if you want to demo **`/simulate`** with live model output. That page
+narrates a case the batch has never seen, so it has no frozen prose to fall back
+on and calls the provider at request time. Without a key it still runs end to
+end and says so on screen, falling back to the deterministic template narrator
+exactly as the batch does.
 
 5. Deploy. When it goes live, copy the URL:
    `https://revenue-recovery-api.onrender.com`
@@ -146,6 +152,10 @@ Then open the Vercel URL. You should see 80 failures, ₹81,91,320 at risk, a
 46.3% recovery rate, and the baseline comparison. Click any row through to a
 case timeline.
 
+Check `/simulate` too: run one case with the hard-stop flag set to **Opted out**
+and confirm it halts at stage 3. That path needs no API key, so it is the fastest
+proof the stream survived the proxy.
+
 ## When something is wrong
 
 | Symptom | Cause |
@@ -155,6 +165,8 @@ case timeline.
 | First load takes ~50s | Render free tier sleeps after 15 minutes idle. **Hit the API URL a few minutes before demoing.** |
 | Timeline shows template prose, no model badge | `narration.json` missing, or `SEED_NOW` on Render differs from the one it was exported with — the apply step refuses to attach prose to a dataset it was not built for |
 | Build fails on `better-sqlite3` | `NODE_VERSION` unset or too old |
+| `/simulate` shows every stage at once, after one long pause | A proxy buffered the event stream. The backend already sends `X-Accel-Buffering: no` and `Cache-Control: no-transform`; anything in front of it must not re-buffer `text/event-stream` |
+| `/simulate` stage 4 says "template fallback" | No `GROQ_API_KEY` on the backend, or the provider rate-limited the call. The run is still real — only the prose is |
 
 ## The free-tier caveat worth planning around
 
