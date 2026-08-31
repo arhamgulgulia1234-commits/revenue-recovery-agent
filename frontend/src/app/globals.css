@@ -10,15 +10,16 @@
   --card-2: #f3f1ed;
   --border: #e8e4dd;
 
-  /* Brand — the one signature accent. Doubles as the "AI/diagnosis" color,
+  /* Brand — the REVYN mark green. Doubles as the "AI/diagnosis" color,
      so the mark carries the product's actual value prop, not a generic hue. */
-  --brand: #6d28d9;
-  --brand-soft: #6d28d9;
-  --on-brand: #ffffff;
+  --brand: #02ad64;
+  --brand-soft: #02ad64;
+  --on-brand: #0c1f16;
 
   /* Status language — used identically everywhere: badges, timeline dots,
-     table cells, chart segments. Three colors, three meanings, no exceptions. */
-  --recovered: #059669;
+     table cells, chart segments. Three colors, three meanings, no exceptions.
+     Recovered shares the brand green so the "healthy" signal reads as one system. */
+  --recovered: #02ad64;
   --pending: #b45309;
   --stopped: #57616f;
 
@@ -40,9 +41,9 @@
     --card-2: #221f1c;
     --border: #322d28;
 
-    --brand: #a78bfa;
-    --brand-soft: #a78bfa;
-    --on-brand: #1c1a17;
+    --brand: #34d399;
+    --brand-soft: #34d399;
+    --on-brand: #0c1f16;
 
     --recovered: #34d399;
     --pending: #fbbf24;

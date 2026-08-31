@@ -1,4 +1,4 @@
-# AI Revenue Recovery
+# REVYN
 
 An agent that recovers revenue at risk — failed payments, failed subscription
 mandates, and overdue B2B invoices. It detects the failure, diagnoses the root

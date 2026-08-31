@@ -1,8 +1,8 @@
 import type { Metadata } from 'next';
+import Image from 'next/image';
 import { IBM_Plex_Sans, IBM_Plex_Mono } from 'next/font/google';
 import './globals.css';
 import { NavLink } from '@/components/NavLink';
-import { Mark } from '@/components/Mark';
 
 const plexSans = IBM_Plex_Sans({
   variable: '--font-plex-sans',
@@ -16,7 +16,7 @@ const plexMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'AI Revenue Recovery',
+  title: 'REVYN',
   description: 'Agentic recovery of failed payments, subscriptions and overdue invoices.',
 };
 
@@ -33,9 +33,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <header className="sticky top-0 z-20 border-b border-border bg-background/85 backdrop-blur-sm">
           <div className="mx-auto max-w-6xl px-6 py-3.5 flex items-center gap-3 flex-wrap">
             <a href="/" className="flex items-center gap-2.5 shrink-0 group">
-              <Mark />
+              <span className="grid h-7 w-7 place-items-center rounded-md bg-black shrink-0 overflow-hidden">
+                <Image src="/logo.png" alt="REVYN" width={28} height={28} className="h-full w-full object-contain" priority />
+              </span>
               <span className="flex flex-col leading-none">
-                <span className="text-[13px] font-semibold tracking-tight">AI Revenue Recovery</span>
+                <span className="text-[13px] font-semibold tracking-tight">REVYN</span>
                 <span className="text-[10.5px] text-muted mt-0.5">Razorpay AI Buildathon · Track 3</span>
               </span>
             </a>
