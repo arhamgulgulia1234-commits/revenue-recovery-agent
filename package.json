@@ -1,5 +1,5 @@
 {
-  "name": "ai-revenue-recovery",
+  "name": "revyn",
   "version": "0.1.0",
   "private": true,
   "description": "Agentic revenue recovery — detects revenue at risk, diagnoses root cause, decides and executes the recovery intervention, and enforces compliant stopping rules with a full audit trail.",
