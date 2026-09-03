@@ -108,10 +108,16 @@ export function RealLinkPanel() {
   }
 
   return (
-    <div className="grid lg:grid-cols-[330px_1fr] gap-6 items-start">
-      {/* ---- The form ---- */}
-      <form
-        className="rounded-lg border border-brand/35 bg-card p-4 space-y-4 lg:sticky lg:top-6"
+    <div className="space-y-6">
+      <div className="grid lg:grid-cols-[330px_1fr] gap-6 items-start">
+        {/*
+          The form is sticky, and bounded. Without the max-height a form taller
+          than the viewport pins its top and puts its own submit button
+          permanently off-screen; without its own overflow there is nothing to
+          scroll back to it with.
+        */}
+        <form
+          className="rounded-lg border border-brand/35 bg-card p-4 space-y-4 lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto"
         onSubmit={(e) => { e.preventDefault(); if (canRun) run(); }}
       >
         <Group label="Customer">
@@ -216,10 +222,16 @@ export function RealLinkPanel() {
 
         {!busy && result && <RealLinkCase key={result.caseId} result={result} />}
         {!busy && !result && <HowToPay config={config} ready={ready} />}
+        </div>
       </div>
 
-      {/* ---- Everything on the book, not just the last one ---- */}
-      <section className="lg:col-span-2 rounded-lg border border-border bg-card p-5">
+      {/*
+        Outside the grid on purpose. As a third grid child it shared a row-flow
+        with the sticky form, which then scrolled straight over the top of it —
+        a sticky element travels its whole grid area, and the area does not end
+        where the column's content does. A plain sibling cannot be overlapped.
+      */}
+      <section className="rounded-lg border border-border bg-card p-5">
         <h3 className="text-sm font-semibold">Live cases</h3>
         <p className="text-xs text-muted mt-1 leading-relaxed">
           Every case minted through this page, with its real link. Re-check any of them — mint a
