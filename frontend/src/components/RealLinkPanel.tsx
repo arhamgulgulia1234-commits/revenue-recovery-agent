@@ -10,12 +10,13 @@ import { RealLinkCase } from '@/components/RealLinkCase';
 import { Group, fieldClass } from '@/components/FormBits';
 
 /**
- * Section 2: the real one.
+ * The real one.
  *
- * The only place in this app that calls a payment provider. It posts to
+ * The only component in this app that calls a payment provider. It posts to
  * /api/live/cases, which mints an actual Razorpay test-mode payment link and
  * writes a real case to the book; the simulator in SimulatePanel shares none of
- * this code and reaches no network beyond its own event stream.
+ * this code and reaches no network beyond its own event stream. It lives on its
+ * own route, /payment-link, for exactly that reason.
  *
  * Kept deliberately smaller than the simulator's form. That panel exists to
  * exercise the decision engine, so it exposes attempt number and compliance
@@ -30,7 +31,7 @@ import { Group, fieldClass } from '@/components/FormBits';
  * correctly retried in silence from beginning to end: nobody is ever asked for
  * anything, so there is no link to mint. Offering them in a section called
  * "generate a real payment link" would be a trap, so they are filtered out and
- * the footnote says where they went. They still work in the simulator.
+ * the footnote says where they went. They still work on the simulate page.
  */
 
 const AMOUNT_PRESETS = [499, 2499, 18999, 450000];
@@ -186,7 +187,7 @@ export function RealLinkPanel() {
               </span>}
             {hidden > 0 && (
               <> {hidden} cause{hidden === 1 ? ' is' : 's are'} not listed here: they are retried
-                silently end to end and never quote a link. They still run in the simulator above.</>
+                silently end to end and never quote a link. They still run on the simulate page.</>
             )}
           </p>
         )}

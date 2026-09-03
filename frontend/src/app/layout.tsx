@@ -24,6 +24,7 @@ const NAV = [
   { href: '/', label: 'Dashboard' },
   { href: '/stopped', label: 'Where we stopped' },
   { href: '/simulate', label: 'Simulate a failure' },
+  { href: '/payment-link', label: 'Generate Payment Link' },
 ];
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

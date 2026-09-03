@@ -11,7 +11,7 @@ import { LiveStages } from '@/components/LiveStages';
 import { Group, Segmented, fieldClass } from '@/components/FormBits';
 
 /**
- * Section 1: the simulator.
+ * The simulator.
  *
  * Type one failed payment, watch the agent work it. Every stage on screen comes
  * off the same engine the 80-case batch runs on — this panel holds no copy of
@@ -22,8 +22,8 @@ import { Group, Segmented, fieldClass } from '@/components/FormBits';
  * throwaway in-memory database, back-dates the failure so a full sequence can
  * resolve in one pass, and rolls outcomes off the probability tables. It calls
  * no payment provider and never has — the real Razorpay path is a separate
- * section on a separate endpoint, deliberately not merged with this one, so
- * that what is modelled and what is real cannot be confused for each other.
+ * route, /payment-link, on a separate endpoint, deliberately not merged with
+ * this one, so what is modelled and what is real cannot be confused.
  */
 
 const AMOUNT_PRESETS = [499, 2499, 18999, 450000];
