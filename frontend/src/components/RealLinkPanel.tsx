@@ -108,16 +108,25 @@ export function RealLinkPanel() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="grid lg:grid-cols-[330px_1fr] gap-6 items-start">
-        {/*
-          The form is sticky, and bounded. Without the max-height a form taller
-          than the viewport pins its top and puts its own submit button
-          permanently off-screen; without its own overflow there is nothing to
-          scroll back to it with.
-        */}
-        <form
-          className="rounded-lg border border-brand/35 bg-card p-4 space-y-4 lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto"
+    /*
+     * Two columns, and exactly two children.
+     *
+     * `position: sticky` on the form is gone deliberately. It was the only
+     * mechanism on this page capable of drawing one panel over another — a
+     * sticky box travels its whole grid area, and a grid area does not end where
+     * its column's content does. A grid of ordinary in-flow blocks cannot
+     * overlap at any width or scroll position, which is worth more here than a
+     * form that follows you down the page.
+     *
+     * `minmax(0, 1fr)` rather than a bare `1fr` on the right column: `1fr` means
+     * `minmax(auto, 1fr)`, and that auto floor is the content's min-content
+     * width — so a single long unbroken payment URL would push the column wider
+     * than the grid and spill it over the form instead of wrapping.
+     */
+    <div className="grid lg:grid-cols-[340px_minmax(0,1fr)] gap-6 lg:gap-8 items-start">
+      {/* ---- Left: the form ---- */}
+      <form
+        className="min-w-0 rounded-lg border border-brand/35 bg-card p-4 space-y-4"
         onSubmit={(e) => { e.preventDefault(); if (canRun) run(); }}
       >
         <Group label="Customer">
@@ -204,8 +213,8 @@ export function RealLinkPanel() {
         )}
       </form>
 
-      {/* ---- The result ---- */}
-      <div className="min-w-0">
+      {/* ---- Right: the result, then everything on the book ---- */}
+      <div className="min-w-0 space-y-6">
         {error && (
           <div className="rounded-lg border border-alert/40 bg-alert/5 p-4 mb-4">
             <p className="text-sm text-alert leading-relaxed">{error}</p>
@@ -222,25 +231,20 @@ export function RealLinkPanel() {
 
         {!busy && result && <RealLinkCase key={result.caseId} result={result} />}
         {!busy && !result && <HowToPay config={config} ready={ready} />}
-        </div>
-      </div>
 
-      {/*
-        Outside the grid on purpose. As a third grid child it shared a row-flow
-        with the sticky form, which then scrolled straight over the top of it —
-        a sticky element travels its whole grid area, and the area does not end
-        where the column's content does. A plain sibling cannot be overlapped.
-      */}
-      <section className="rounded-lg border border-border bg-card p-5">
-        <h3 className="text-sm font-semibold">Live cases</h3>
-        <p className="text-xs text-muted mt-1 leading-relaxed">
-          Every case minted through this page, with its real link. Re-check any of them — mint a
-          link here, pay it on your phone, come back and press the row.
-        </p>
-        <div className="mt-3">
-          <LiveCaseList refreshKey={refreshKey} />
-        </div>
-      </section>
+        {/* Stacked inside the right column, so there is no third grid child and
+            therefore no second row for anything to flow into. */}
+        <section className="min-w-0 rounded-lg border border-border bg-card p-5">
+          <h3 className="text-sm font-semibold">Live cases</h3>
+          <p className="text-xs text-muted mt-1 leading-relaxed">
+            Every case minted through this page, with its real link. Re-check any of them — mint a
+            link here, pay it on your phone, come back and press the row.
+          </p>
+          <div className="mt-3">
+            <LiveCaseList refreshKey={refreshKey} />
+          </div>
+        </section>
+      </div>
     </div>
   );
 }
