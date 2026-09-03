@@ -185,7 +185,16 @@ export async function createPaymentLink({
   customer = {},
   referenceId,
   notes = {},
-  expiryHours = Number(process.env.RAZORPAY_LINK_EXPIRY_HOURS ?? 24),
+  /**
+   * 0 — no expiry — by default, and that is the considered choice rather than
+   * laziness. A recovery case legitimately runs for weeks: the matrix schedules
+   * a third invoice reminder on day 30, and the copy quoting this link is
+   * written when that attempt is *scheduled*. A 24-hour link would be dead
+   * before the message it appears in ever goes out, and the failure mode is the
+   * worst kind — a link that looks fine and cannot be paid. A real deployment
+   * should set this to outlive the case (45 days, say), not to a day.
+   */
+  expiryHours = Number(process.env.RAZORPAY_LINK_EXPIRY_HOURS ?? 0),
 }) {
   const body = {
     amount: paise(amountInr),

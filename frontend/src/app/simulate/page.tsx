@@ -355,9 +355,9 @@ npm run dev    # backend :4000 + frontend :3000`}
           <Group
             label="Decline code"
             hint={realLink && declineMeta
-              ? (declineMeta.mintsPaymentLinkFirst
-                ? `First action: ${declineMeta.firstActionLabel} — carries a real payment link.`
-                : `First action: ${declineMeta.firstActionLabel} — no message, so no link is minted. Pick a code marked "link" to rehearse a payment.`)
+              ? (declineMeta.mintsPaymentLink
+                ? `First action: ${declineMeta.firstActionLabel}. A real payment link is quoted on attempt ${declineMeta.paymentLinkAttempt}${declineMeta.paymentLinkAttempt === 1 ? '' : ` (${declineMeta.paymentLinkActionLabel}) — the earlier attempt is a silent retry, so nothing to pay until then`}.`
+                : `First action: ${declineMeta.firstActionLabel}. This cause is retried silently the whole way through and never asks the customer for anything, so no link is minted. Pick a code marked "link" to rehearse a payment.`)
               : undefined}
           >
             <select
@@ -370,7 +370,11 @@ npm run dev    # backend :4000 + frontend :3000`}
                 return (
                   <option key={d.code} value={d.code}>
                     {d.label}
-                    {realLink && meta ? (meta.mintsPaymentLinkFirst ? ' · link' : ' · silent retry') : ''}
+                    {realLink && meta
+                      ? (meta.mintsPaymentLink
+                        ? (meta.paymentLinkAttempt === 1 ? ' · link' : ` · link on attempt ${meta.paymentLinkAttempt}`)
+                        : ' · no link')
+                      : ''}
                   </option>
                 );
               })}

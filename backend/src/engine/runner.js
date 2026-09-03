@@ -475,7 +475,7 @@ export function createRunner({
     stmt.sendLog.run({
       id: log.id,
       executed_at: iso(at),
-      message_sent: log.message_sent,
+      message_sent: refreshedCopy(ctx, log, silent),
       response_deadline_at: deadline == null ? null : iso(deadline),
       outcome_detail: silent ? 'Retry submitted to the gateway' : 'Sent — awaiting response',
     });
@@ -501,6 +501,33 @@ export function createRunner({
     return 'continue';
   }
 
+
+  /**
+   * The copy as it stands at execution time.
+   *
+   * Almost always exactly what was written when the attempt was scheduled — the
+   * point of rendering it then is that the dashboard can show it while the
+   * action is still pending, and that stays true.
+   *
+   * The exception is narrow and worth the code: a live case whose Razorpay link
+   * was minted *after* this attempt's copy was drafted. That happens to a case
+   * opened before the link existed — Razorpay unconfigured at the time, or a
+   * case carried over from an older build — and the stored draft quotes the
+   * synthetic fallback URL, which cannot be paid. Re-rendering here means the
+   * message that actually goes out names the link the case really has.
+   *
+   * Deliberately scoped to live cases holding a link the draft does not mention.
+   * A simulated case is never touched, so the seeded book's LLM-written copy
+   * cannot be silently overwritten with template text by a scheduler tick.
+   */
+  function refreshedCopy(ctx, log, silent) {
+    const { caseRow } = ctx;
+    if (silent || !log.message_sent) return log.message_sent;
+    if (caseRow.delivery_mode !== 'live') return log.message_sent;
+    const url = caseRow.payment_link_url;
+    if (!url || log.message_sent.includes(url)) return log.message_sent;
+    return renderMessage(narrator, actionOf(log), ctx) ?? log.message_sent;
+  }
 
   /**
    * The response window has expired. Whatever was going to happen has happened.

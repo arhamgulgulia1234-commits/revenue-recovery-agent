@@ -25,6 +25,7 @@
 
 import { nowFor } from '../lib/clock.js';
 import { createRunner, RESUMABLE, isTerminal } from './runner.js';
+import { ensurePaymentLink } from './payment-link.js';
 
 /**
  * The runner scopes its randomness to (case, attempt), so a simulated case
@@ -43,6 +44,26 @@ export function advance(db, caseId) {
   const caseRow = db.prepare('SELECT * FROM recovery_cases WHERE id = ?').get(caseId);
   if (!caseRow || isTerminal(caseRow.status)) return caseRow ?? null;
   return runnerFor(db, caseRow).advanceCase(caseId);
+}
+
+/**
+ * The same, but minting a payment link first if the next action needs one.
+ *
+ * Kept separate from `advance` because it is async and `advance` cannot be: the
+ * runner is synchronous and the case route, the batch and the tests all call
+ * into it from synchronous code. Callers that can await should prefer this one —
+ * a live case escalating from a silent retry to a payment link gets a real,
+ * payable URL in that message instead of the synthetic fallback.
+ */
+export async function advanceWithLink(db, caseId) {
+  const caseRow = db.prepare('SELECT * FROM recovery_cases WHERE id = ?').get(caseId);
+  if (!caseRow || isTerminal(caseRow.status)) return caseRow ?? null;
+  if (caseRow.delivery_mode === 'live') {
+    // Never fatal: a link that could not be minted leaves the case to advance on
+    // the fallback text rather than stalling the recovery.
+    await ensurePaymentLink(db, caseId).catch(() => null);
+  }
+  return advance(db, caseId);
 }
 
 /** Every case whose next_action_at has passed, on the clock that case runs on. */
@@ -92,7 +113,35 @@ export function sweep(db) {
  * @returns {() => void} stop
  */
 export function startScheduler(db, { intervalMs = 60000, log = console.log } = {}) {
-  const tick = (label) => {
+  /**
+   * Live cases get a pre-pass before the sweep: a case about to escalate to a
+   * payment link needs a real one minted first, because the copy is rendered
+   * when the intervention is scheduled, not when it is sent.
+   *
+   * `busy` stops a slow Razorpay call from overlapping itself if the interval
+   * comes round again while it is still minting.
+   */
+  let busy = false;
+
+  const tick = async (label) => {
+    if (!busy) {
+      busy = true;
+      try {
+        for (const caseRow of due(db)) {
+          if (caseRow.delivery_mode !== 'live') continue;
+          const r = await ensurePaymentLink(db, caseRow.id);
+          if (r.link) log(`  scheduler ${label}: minted ${r.link.id} for ${caseRow.id}`);
+          if (r.error) log(`  scheduler ${label}: link failed for ${caseRow.id} — ${r.error}`);
+        }
+      } catch (err) {
+        // Minting trouble must never stop the sweep; the case advances on the
+        // fallback text and can be re-checked on the next tick.
+        log(`  scheduler ${label}: link pre-pass failed — ${err.message}`);
+      } finally {
+        busy = false;
+      }
+    }
+
     const { checked, advanced, errors } = sweep(db);
     if (advanced.length || errors.length) {
       log(`  scheduler ${label}: ${advanced.length}/${checked} advanced` +

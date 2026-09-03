@@ -16,7 +16,7 @@ import {
   mintForCase, checkPaymentStatus, NoPaymentLink, actionCarriesLink,
 } from '../engine/payment-link.js';
 import { decideIntervention, ACTION_LABELS } from '../engine/matrix.js';
-import { advance } from '../engine/scheduler.js';
+import { advanceWithLink } from '../engine/scheduler.js';
 import {
   configSummary as razorpayConfig, TEST_INSTRUMENTS, RazorpayError,
 } from '../lib/razorpay.js';
@@ -83,7 +83,9 @@ liveRouter.get('/config', (req, res) => {
     // whose first action is a silent retry has no message and therefore no link,
     // and that is a property of the decision matrix, not of this route.
     declineCodes: Object.entries(DECLINE_CODES).map(([code, m]) => {
-      const first = firstActionFor(code);
+      const plan = actionPlanFor(code);
+      const first = plan[0] ?? null;
+      const linkAt = plan.findIndex((d) => d && actionCarriesLink(d.actionType));
       return {
         code,
         label: m.label,
@@ -91,7 +93,11 @@ liveRouter.get('/config', (req, res) => {
         sendsMessageFirst: BUCKET_BY_CODE[code] !== 'transient',
         firstAction: first?.actionType ?? null,
         firstActionLabel: first ? (ACTION_LABELS[first.actionType] ?? first.actionType) : null,
-        mintsPaymentLinkFirst: Boolean(first && actionCarriesLink(first.actionType)),
+        /** Whether this case ever quotes a link, and on which attempt (1-based). */
+        mintsPaymentLink: linkAt >= 0,
+        paymentLinkAttempt: linkAt >= 0 ? linkAt + 1 : null,
+        paymentLinkActionLabel: linkAt >= 0
+          ? (ACTION_LABELS[plan[linkAt].actionType] ?? plan[linkAt].actionType) : null,
       };
     }),
   });
@@ -137,15 +143,21 @@ liveRouter.post('/cases', async (req, res, next) => {
      * has to exist before the copy that quotes it, and the runner is synchronous
      * — see engine/payment-link.js for why that ordering is forced.
      *
-     * A case whose first action is a silent retry mints nothing. Neither does one
-     * opened while Razorpay is unconfigured: it falls back to the synthetic link
-     * text and opens perfectly well, and refusing to open it would be worse.
+     * Every attempt is forecast, not just the first. A silent retry resolves in
+     * the same pass it executes, so a case opening on one writes its *second*
+     * attempt's copy before `openLiveCase` returns — and that is the attempt
+     * that quotes the link.
+     *
+     * A case that never quotes a link mints nothing. Neither does one opened
+     * while Razorpay is unconfigured: it falls back to the synthetic link text
+     * and opens perfectly well, and refusing to open it would be worse.
      */
     const prepared = prepareLiveCase(db, input);
     const minted = await mintForCase({
       input,
       customer: prepared.customer,
       forecast: prepared.forecast,
+      linkAttempt: prepared.linkAttempt,
       referenceId: prepared.referenceId,
     });
 
@@ -212,9 +224,11 @@ liveRouter.post('/cases', async (req, res, next) => {
 });
 
 /** One live case in full, advanced to the present first. */
-liveRouter.get('/cases/:id', (req, res) => {
+liveRouter.get('/cases/:id', async (req, res) => {
   const db = getDb();
-  try { advance(db, req.params.id); } catch { /* still worth showing */ }
+  // Advancing may escalate the case to an action that quotes a payment link, so
+  // this mints one first if the case does not already have it.
+  try { await advanceWithLink(db, req.params.id); } catch { /* still worth showing */ }
 
   const caseRow = db.prepare(
     "SELECT * FROM recovery_cases WHERE id = ? AND delivery_mode = 'live'").get(req.params.id);
@@ -257,28 +271,34 @@ liveRouter.post('/cases/:id/payment-status', async (req, res, next) => {
 });
 
 /**
- * What the matrix chooses first for a given decline code, on a representative
- * live case.
+ * Every action the matrix would take on a decline code, in order.
  *
  * A stand-in customer shaped like the ones `openLiveCase` creates: consumer,
- * WhatsApp, and a gateway that has spent one attempt. Enough for the matrix to
- * answer "message or silent retry, and does that message carry a link" — which
- * is all the form needs to warn someone before they pick a code that mints
- * nothing.
+ * WhatsApp, and a gateway that has spent one attempt. The whole sequence is
+ * asked for, not just the first step, because "does this case ever quote a
+ * payment link" is the question the form actually needs answered — an
+ * insufficient-funds case opens on a silent retry and escalates to a link on
+ * attempt two, and calling that "no link" would be wrong.
  */
-function firstActionFor(code) {
+function actionPlanFor(code) {
   const now = Date.now();
   const customer = {
     segment: 'consumer', preferred_channel: 'whatsapp', salary_day: 1, reliability_score: 0.62,
   };
   const attempt = { decline_code: code, attempt_number: 1, amount_inr: 2499 };
-  try {
-    return decideIntervention({
-      bucket: BUCKET_BY_CODE[code], attemptIndex: 0, customer, attempt, caseOpenedAt: now,
-    });
-  } catch {
-    return null;
+  const plan = [];
+  for (let n = 0; n < POLICY.MAX_ATTEMPTS_PER_CASE; n += 1) {
+    try {
+      const d = decideIntervention({
+        bucket: BUCKET_BY_CODE[code], attemptIndex: n, customer, attempt, caseOpenedAt: now,
+      });
+      if (!d) break;
+      plan.push(d);
+    } catch {
+      break;
+    }
   }
+  return plan;
 }
 
 /**

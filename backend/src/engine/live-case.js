@@ -246,12 +246,7 @@ function buildFailure(db, customer, input, failedAt, suffix) {
  * skipped.
  */
 function firstActionForecast(db, customer, input, now) {
-  const probe = buildFailure(db, customer, input, now, 'probe');
-  const { bucket } = classify(probe.attempt);
-  const anchor = probe.invoice ? new Date(probe.invoice.due_at).getTime() : now;
-  const decision = decideIntervention({
-    bucket, attemptIndex: 0, customer, attempt: probe.attempt, caseOpenedAt: anchor,
-  });
+  const decision = forecastAttempt(db, customer, input, now, 0);
   if (!decision) return null;
   return {
     actionType: decision.actionType,
@@ -260,6 +255,39 @@ function firstActionForecast(db, customer, input, now) {
     scheduledFor: decision.scheduledFor,
     delayMs: Math.max(0, decision.scheduledFor - now),
   };
+}
+
+/** What the matrix would choose for one attempt index. Read-only. */
+function forecastAttempt(db, customer, input, now, attemptIndex) {
+  const probe = buildFailure(db, customer, input, now, 'probe');
+  const { bucket } = classify(probe.attempt);
+  const anchor = probe.invoice ? new Date(probe.invoice.due_at).getTime() : now;
+  return decideIntervention({
+    bucket, attemptIndex, customer, attempt: probe.attempt, caseOpenedAt: anchor,
+  });
+}
+
+/**
+ * The first attempt on this case that will quote a payment link, if any.
+ *
+ * Not just attempt one. A silent retry resolves in the same breath it executes —
+ * the gateway answers immediately and there is nobody to wait for — so a case
+ * that opens on one runs straight into the *next* decision inside the same
+ * `runCase` pass, and that decision's copy is rendered there and then. An
+ * insufficient-funds case is exactly this: a timed retry, then a payment link,
+ * both written before `openLiveCase` returns.
+ *
+ * So the question worth asking up front is not "does the first action carry a
+ * link" but "will this case quote one at all", and the answer has to be known
+ * before the runner starts writing copy.
+ */
+function linkBearingAttempt(db, customer, input, now) {
+  for (let n = 0; n < POLICY.MAX_ATTEMPTS_PER_CASE; n += 1) {
+    const decision = forecastAttempt(db, customer, input, now, n);
+    if (!decision) return null;
+    if (actionCarriesLink(decision.actionType)) return { attemptIndex: n, decision };
+  }
+  return null;
 }
 
 const insert = (db, table, row) => {
@@ -289,6 +317,8 @@ export function prepareLiveCase(db, input, { now = Date.now() } = {}) {
   const forecast = firstActionForecast(db, customer, input, now);
   const suffix = `${Date.now().toString(36)}${Math.floor(Math.random() * 1296).toString(36)}`;
 
+  const linkAttempt = linkBearingAttempt(db, customer, input, now);
+
   return {
     customer,
     forecast,
@@ -297,7 +327,9 @@ export function prepareLiveCase(db, input, { now = Date.now() } = {}) {
     // Razorpay's own idempotency handle, and what you search their dashboard by
     // to find the link this case minted.
     referenceId: `revyn_${suffix}`,
-    carriesPaymentLink: Boolean(forecast && actionCarriesLink(forecast.actionType)),
+    /** Which attempt first quotes a link, and what it is. Null if none ever does. */
+    linkAttempt,
+    carriesPaymentLink: Boolean(linkAttempt),
   };
 }
 

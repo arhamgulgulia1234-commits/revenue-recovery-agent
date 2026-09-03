@@ -127,8 +127,14 @@ export type LiveConfig = {
     sendsMessageFirst: boolean;
     firstAction: string | null;
     firstActionLabel: string | null;
-    /** Whether the agent's *first* action on this code carries a payment link. */
-    mintsPaymentLinkFirst: boolean;
+    /**
+     * Whether this case ever quotes a payment link, and on which attempt. Not
+     * always the first: an insufficient-funds case opens on a silent retry and
+     * escalates to a link on attempt two.
+     */
+    mintsPaymentLink: boolean;
+    paymentLinkAttempt: number | null;
+    paymentLinkActionLabel: string | null;
   }[];
 };
 

@@ -3,9 +3,10 @@
  *
  * Two moments, and the gap between them is the whole design:
  *
- *   mint    — before the case opens, once the matrix has said its first outreach
- *             will carry a link. The URL then exists in time for the narrator to
- *             put it in the message the customer actually receives.
+ *   mint    — before the agent writes a message that will quote a link. That is
+ *             usually as the case opens, but not always: a case can open on a
+ *             silent retry and escalate to a payment link days later, so
+ *             `ensurePaymentLink` covers every attempt after the first.
  *   settle  — afterwards, on demand, when someone asks what happened to it.
  *             Razorpay is the authority; nothing here infers that money arrived.
  *
@@ -30,7 +31,9 @@
 
 import { createPaymentLink, fetchPaymentLink, RazorpayError, isConfigured } from '../lib/razorpay.js';
 import { appendSystemAudit } from './audit.js';
-import { ACTION_LABELS } from './matrix.js';
+import { ACTION_LABELS, decideIntervention } from './matrix.js';
+import { classify } from './classifier.js';
+import { POLICY } from '../lib/taxonomy.js';
 import { formatIst, iso } from '../lib/time.js';
 
 /**
@@ -60,7 +63,7 @@ export class NoPaymentLink extends Error {}
 // ---------------------------------------------------------------------------
 
 /**
- * Mint the link this case's first outreach will quote.
+ * Mint the link this case will quote, whichever attempt first does so.
  *
  * Returns `null` rather than throwing when Razorpay is not configured: a live
  * case without a real link is a perfectly good case that falls back to the
@@ -70,16 +73,18 @@ export class NoPaymentLink extends Error {}
  *
  * @returns {Promise<{link:object|null, error:string|null, skipped:string|null}>}
  */
-export async function mintForCase({ input, customer, forecast, referenceId }) {
+export async function mintForCase({ input, customer, forecast, linkAttempt, referenceId }) {
   if (!forecast) {
     return { link: null, error: null, skipped: 'the agent takes no action on this case' };
   }
-  if (!actionCarriesLink(forecast.actionType)) {
+  if (!linkAttempt) {
     return {
       link: null,
       error: null,
-      skipped: `the agent's first action is ${(ACTION_LABELS[forecast.actionType] ?? forecast.actionType).toLowerCase()}`
-             + (forecast.silent ? ', which sends no message' : ', which carries no payment link'),
+      skipped: `no attempt on this case quotes a payment link — it opens with `
+             + `${(ACTION_LABELS[forecast.actionType] ?? forecast.actionType).toLowerCase()}`
+             + (forecast.silent ? ', which sends no message' : '')
+             + ' and never escalates to one',
     };
   }
   if (!isConfigured()) {
@@ -98,7 +103,8 @@ export async function mintForCase({ input, customer, forecast, referenceId }) {
         source: 'revyn',
         decline_code: input.declineCode,
         segment: input.segment,
-        action_type: forecast.actionType,
+        action_type: linkAttempt.decision.actionType,
+        attempt: String(linkAttempt.attemptIndex + 1),
         customer_name: customer.name,
       },
     });
@@ -113,6 +119,138 @@ export async function mintForCase({ input, customer, forecast, referenceId }) {
 function describe(input, customer) {
   const amount = `₹${Math.round(input.amountInr).toLocaleString('en-IN')}`;
   return input.declineCode === 'invoice_overdue'
+    ? `Overdue invoice — ${amount} for ${customer.name}`
+    : `Recovering a failed payment of ${amount} for ${customer.name}`;
+}
+
+/**
+ * Make sure a live case has a link *before* the agent writes its next message.
+ *
+ * `mintForCase` covers the moment a case opens, but that is not the only moment
+ * a link becomes necessary. A case can open on an action that carries none — an
+ * insufficient-funds failure correctly opens with a silent retry timed to the
+ * customer's salary — and escalate days later to a payment link. Without this,
+ * that second message would quote the synthetic fallback URL, which is not
+ * payable, and the case could never be recovered.
+ *
+ * Timing matters twice over. The copy is rendered when the intervention is
+ * *scheduled*, not when it executes, so this has to run before `advanceCase`
+ * rather than before the send. And minting every case's link up front instead
+ * would be worse than useless: links expire (24h by default), so one minted on
+ * day 0 for an action taken on day 3 is dead on arrival.
+ *
+ * A no-op on anything that does not need it, so it is safe to call before every
+ * advance: already has a link, not a live case, terminal, Razorpay unconfigured,
+ * or the next action carries no link.
+ *
+ * @returns {Promise<{link:object|null, error:string|null, skipped:string|null}>}
+ */
+export async function ensurePaymentLink(db, caseId) {
+  const caseRow = db.prepare('SELECT * FROM recovery_cases WHERE id = ?').get(caseId);
+  if (!caseRow) return { link: null, error: null, skipped: 'no such case' };
+  if (caseRow.payment_link_id) return { link: null, error: null, skipped: 'already has a link' };
+  if (caseRow.delivery_mode !== 'live') return { link: null, error: null, skipped: 'not a live case' };
+  if (TERMINAL.has(caseRow.status)) return { link: null, error: null, skipped: 'case is closed' };
+  if (!isConfigured()) return { link: null, error: null, skipped: 'Razorpay is not configured' };
+
+  const attempt = db.prepare('SELECT * FROM payment_attempts WHERE id = ?')
+    .get(caseRow.payment_attempt_id);
+  const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get(caseRow.customer_id);
+  if (!attempt || !customer) return { link: null, error: null, skipped: 'case is incomplete' };
+
+  const invoice = attempt.invoice_id
+    ? db.prepare('SELECT * FROM invoices WHERE id = ?').get(attempt.invoice_id) : null;
+
+  /**
+   * Every attempt still ahead of this case, not merely the next one.
+   *
+   * The same reason `prepareLiveCase` scans the whole sequence: a silent retry
+   * resolves in the pass that executes it, so one `advanceCase` call can run the
+   * retry *and* decide the attempt after it, rendering that attempt's copy.
+   * Asking only about the immediate next action would mint nothing here and let
+   * the following message quote the unpayable fallback — precisely the bug this
+   * function exists to prevent.
+   */
+  const { bucket } = classify(attempt);
+  const anchor = invoice
+    ? new Date(invoice.due_at).getTime()
+    : new Date(caseRow.opened_at).getTime();
+
+  let next = null;
+  let attemptIndex = null;
+  for (let n = caseRow.attempts_used; n < POLICY.MAX_ATTEMPTS_PER_CASE; n += 1) {
+    const d = decideIntervention({
+      bucket, attemptIndex: n, customer, attempt, caseOpenedAt: anchor,
+    });
+    if (!d) break;
+    if (actionCarriesLink(d.actionType)) { next = d; attemptIndex = n; break; }
+  }
+  if (!next) {
+    return {
+      link: null,
+      error: null,
+      skipped: 'no remaining attempt on this case quotes a payment link',
+    };
+  }
+
+  try {
+    const link = await createPaymentLink({
+      amountInr: caseRow.amount_at_risk_inr,
+      description: describeCase(caseRow, customer, attempt),
+      customer: { name: customer.name, email: customer.email, phone: caseRow.contact_phone },
+      // Unique per mint, not per (case, attempt). Razorpay enforces reference_id
+      // uniqueness across the whole account and forever, while case ids restart
+      // at case_0081 after every `npm run reset && npm run seed` — so a
+      // deterministic reference works on the first rehearsal and fails on every
+      // one after it. The case row's own payment_link_id is what stops a case
+      // being minted twice; this only has to be traceable.
+      referenceId: `revyn_${caseRow.id}_a${attemptIndex + 1}_${mintSuffix()}`,
+      notes: {
+        source: 'revyn',
+        case_id: caseRow.id,
+        decline_code: attempt.decline_code,
+        segment: customer.segment,
+        action_type: next.actionType,
+        attempt: String(attemptIndex + 1),
+        customer_name: customer.name,
+      },
+    });
+    attachLink(db, caseRow.id, link);
+    return { link, error: null, skipped: null };
+  } catch (err) {
+    if (!(err instanceof RazorpayError)) throw err;
+    // Never fatal. The case advances on the fallback text rather than stalling —
+    // a payment-link problem does not get to block a recovery decision.
+    return { link: null, error: err.message, skipped: null };
+  }
+}
+
+/** Statuses from which no further work is possible. Mirrors runner.js. */
+const TERMINAL = new Set(['recovered', 'stopped', 'failed']);
+
+/** Short, sortable, and collision-proof enough for a reference suffix. */
+const mintSuffix = () =>
+  `${Date.now().toString(36)}${Math.floor(Math.random() * 1296).toString(36).padStart(2, '0')}`;
+
+/** Write a minted link onto an existing case row. */
+export function attachLink(db, caseId, link) {
+  db.prepare(`
+    UPDATE recovery_cases SET payment_link_id=@payment_link_id, payment_link_url=@payment_link_url,
+      payment_link_ref=@payment_link_ref, payment_link_status=@payment_link_status,
+      payment_link_created_at=@payment_link_created_at WHERE id=@id`).run({
+    id: caseId,
+    payment_link_id: link.id,
+    payment_link_url: link.shortUrl,
+    payment_link_ref: link.referenceId,
+    payment_link_status: link.status,
+    payment_link_created_at: link.createdAt,
+  });
+}
+
+/** The same wording as `describe`, from a stored case rather than form input. */
+function describeCase(caseRow, customer, attempt) {
+  const amount = `₹${Math.round(caseRow.amount_at_risk_inr).toLocaleString('en-IN')}`;
+  return attempt.decline_code === 'invoice_overdue'
     ? `Overdue invoice — ${amount} for ${customer.name}`
     : `Recovering a failed payment of ${amount} for ${customer.name}`;
 }
