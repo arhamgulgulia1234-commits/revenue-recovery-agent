@@ -470,7 +470,10 @@ export function createRunner({
   function send(ctx, log, at) {
     const { caseRow } = ctx;
     const silent = log.channel === 'none';
-    const deadline = silent ? null : at + POLICY.RESPONSE_WINDOW_MS;
+    // Live cases can carry a shorter window than the seeded book — see
+    // POLICY.LIVE_RESPONSE_WINDOW_DAYS. A simulated case always gets the real
+    // policy, whatever the live one is set to.
+    const deadline = silent ? null : at + POLICY.windowMsFor(caseRow.delivery_mode);
 
     stmt.sendLog.run({
       id: log.id,
@@ -545,7 +548,7 @@ export function createRunner({
     // window to establish.
     const respondedAt = outcome.engaged === false
       ? deadline
-      : executedAt + POLICY.RESPONSE_WINDOW_MS * POLICY.SIMULATED_RESPONSE_FRACTION;
+      : executedAt + POLICY.windowMsFor(ctx.caseRow.delivery_mode) * POLICY.SIMULATED_RESPONSE_FRACTION;
     return applyOutcome(ctx, log, outcome, respondedAt, deadline);
   }
 

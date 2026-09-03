@@ -103,6 +103,49 @@ liveRouter.get('/config', (req, res) => {
   });
 });
 
+/**
+ * The real book, in totals.
+ *
+ * Deliberately its own endpoint rather than a few extra fields on
+ * /api/portfolio/stats. Those numbers describe the seeded book and are filtered
+ * to `source = 'seed'` precisely so a live case cannot move them; folding real
+ * recoveries in there would undo the guarantee the filter exists to make. This
+ * is the other set of books, reported separately and labelled as such.
+ */
+liveRouter.get('/stats', (req, res) => {
+  const db = getDb();
+  const one = (sql) => db.prepare(sql).get();
+
+  const cases = one(`
+    SELECT COUNT(*) AS total,
+           SUM(CASE WHEN status = 'recovered' THEN 1 ELSE 0 END) AS recovered,
+           SUM(CASE WHEN status IN ('open','in_progress','awaiting_response','promise_to_pay')
+                    THEN 1 ELSE 0 END) AS in_flight,
+           COALESCE(SUM(recovered_amount_inr), 0) AS recovered_inr,
+           COALESCE(SUM(CASE WHEN status != 'recovered' THEN amount_at_risk_inr ELSE 0 END), 0)
+             AS at_risk_inr,
+           SUM(CASE WHEN payment_link_id IS NOT NULL THEN 1 ELSE 0 END) AS links_minted,
+           MAX(paid_at) AS last_paid_at
+    FROM recovery_cases WHERE delivery_mode = 'live'`);
+
+  res.json({
+    // Everything here is real: real links on Razorpay, real payments, real
+    // timestamps. None of it is modelled and none of it touches the seeded book.
+    real: true,
+    cases: {
+      total: cases.total ?? 0,
+      recovered: cases.recovered ?? 0,
+      inFlight: cases.in_flight ?? 0,
+      linksMinted: cases.links_minted ?? 0,
+    },
+    recoveredInr: cases.recovered_inr ?? 0,
+    atRiskInr: cases.at_risk_inr ?? 0,
+    lastPaidAt: cases.last_paid_at ?? null,
+    lastPaidAtLabel: cases.last_paid_at ? formatIst(cases.last_paid_at) : null,
+    razorpay: razorpayConfig(),
+  });
+});
+
 /** Live cases on the book, newest first. */
 liveRouter.get('/cases', (req, res) => {
   const db = getDb();

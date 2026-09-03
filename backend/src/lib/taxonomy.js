@@ -117,9 +117,42 @@ export const POLICY = {
    * gateway answers immediately.
    */
   RESPONSE_WINDOW_DAYS: Number(process.env.RESPONSE_WINDOW_DAYS) || 3,
+
+  /**
+   * The same window, for live cases only.
+   *
+   * A live case waits in wall-clock time, so a three-day window means the agent
+   * cannot be seen escalating from attempt one to attempt two inside a demo —
+   * or inside a working day. Shortening it here rather than through
+   * RESPONSE_WINDOW_DAYS is the whole point: that one is global, so lowering it
+   * would rewrite the seeded book's windows on the next `npm run seed` and move
+   * the headline numbers. This one cannot touch a simulated case.
+   *
+   * Defaults to the real policy. Fractional days are fine — 0.003 is about four
+   * minutes, which is long enough to be a real wait and short enough to talk
+   * over.
+   */
+  LIVE_RESPONSE_WINDOW_DAYS:
+    Number(process.env.LIVE_RESPONSE_WINDOW_DAYS)
+    || Number(process.env.RESPONSE_WINDOW_DAYS)
+    || 3,
 };
 
 POLICY.RESPONSE_WINDOW_MS = POLICY.RESPONSE_WINDOW_DAYS * 86400000;
+POLICY.LIVE_RESPONSE_WINDOW_MS = POLICY.LIVE_RESPONSE_WINDOW_DAYS * 86400000;
+
+/** The window a case actually gets, by the clock it runs on. */
+POLICY.windowMsFor = (deliveryMode) =>
+  (deliveryMode === 'live' ? POLICY.LIVE_RESPONSE_WINDOW_MS : POLICY.RESPONSE_WINDOW_MS);
+
+/** How that window reads in prose, per mode. */
+POLICY.windowLabelFor = (deliveryMode) => {
+  const days = deliveryMode === 'live'
+    ? POLICY.LIVE_RESPONSE_WINDOW_DAYS : POLICY.RESPONSE_WINDOW_DAYS;
+  if (days >= 1) return `${days}-day`;
+  const mins = Math.round(days * 24 * 60);
+  return mins >= 60 ? `${Math.round(mins / 60)}-hour` : `${mins}-minute`;
+};
 
 /**
  * When a positive response lands inside the window.

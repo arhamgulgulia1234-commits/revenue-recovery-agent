@@ -28,6 +28,12 @@ export type CaseDetail = {
     next_action_at: string | null;
     delivery_mode: 'simulated' | 'live';
     contact_phone: string | null;
+    /** Razorpay, on a live case that minted a link. Null everywhere else. */
+    payment_link_id: string | null;
+    payment_link_url: string | null;
+    payment_link_status: string | null;
+    payment_id: string | null;
+    paid_at: string | null;
     decline_code: string; gateway_message: string; attempt_number: number;
     failed_at: string; plan_name: string | null; invoice_number: string | null;
     opted_out_at: string | null; disputed_at: string | null;

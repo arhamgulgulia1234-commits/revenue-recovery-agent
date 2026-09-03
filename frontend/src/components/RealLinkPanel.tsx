@@ -7,6 +7,7 @@ import {
   type LiveCaseResult, type LiveConfig,
 } from '@/lib/liveCase';
 import { RealLinkCase } from '@/components/RealLinkCase';
+import { LiveCaseList } from '@/components/LiveCaseList';
 import { Group, fieldClass } from '@/components/FormBits';
 
 /**
@@ -50,6 +51,8 @@ export function RealLinkPanel() {
   const [result, setResult] = useState<LiveCaseResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Bumped on every successful mint so the list below re-reads the book. */
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     fetchLiveConfig().then(setConfig).catch((e) => setConfigError((e as Error).message));
@@ -74,7 +77,7 @@ export function RealLinkPanel() {
     setError(null);
     setResult(null);
     try {
-      setResult(await openLiveCase({
+      const opened = await openLiveCase({
         customerName: customerName.trim(),
         amountInr,
         declineCode: reason,
@@ -85,7 +88,9 @@ export function RealLinkPanel() {
         // Always on here. Left off, the matrix schedules the first outreach an
         // hour out and this panel would hand back a case with nothing to show.
         sendFirstMessageNow: true,
-      }));
+      });
+      setResult(opened);
+      setRefreshKey((k) => k + 1);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -212,6 +217,18 @@ export function RealLinkPanel() {
         {!busy && result && <RealLinkCase key={result.caseId} result={result} />}
         {!busy && !result && <HowToPay config={config} ready={ready} />}
       </div>
+
+      {/* ---- Everything on the book, not just the last one ---- */}
+      <section className="lg:col-span-2 rounded-lg border border-border bg-card p-5">
+        <h3 className="text-sm font-semibold">Live cases</h3>
+        <p className="text-xs text-muted mt-1 leading-relaxed">
+          Every case minted through this page, with its real link. Re-check any of them — mint a
+          link here, pay it on your phone, come back and press the row.
+        </p>
+        <div className="mt-3">
+          <LiveCaseList refreshKey={refreshKey} />
+        </div>
+      </section>
     </div>
   );
 }
