@@ -3,7 +3,7 @@
  *
  *   npm run live:reset
  *
- * Testing a real WhatsApp send means opening real cases, and they accumulate.
+ * Rehearsing the real payment flow means opening real cases, and they accumulate.
  * `npm run reset` is the wrong tool — it clears everything and would cost a
  * reseed and a re-simulate to get the demo back. This removes only what the
  * live path created: cases marked `delivery_mode = 'live'`, the rows hanging off

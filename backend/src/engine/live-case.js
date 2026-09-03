@@ -1,6 +1,6 @@
 /**
- * Opening a real case: one that sends an actual WhatsApp message to an actual
- * phone, and is written to the real book rather than a scratch database.
+ * Opening a real case: one carrying a real Razorpay payment link, written to the
+ * real book rather than a scratch database.
  *
  * This is the deliberate opposite of live-run.js. That module exists to *show*
  * the agent working and persists nothing; this one commits. The distinction is
@@ -13,14 +13,14 @@
  * Nothing here is back-dated. The failure carries the actual current timestamp,
  * the case opens at the moment it really opened, and every response window is
  * genuine elapsed time: a case waits three real days for a reply, and only a
- * real webhook or a real deadline moves it on. The demo's compressed clock —
+ * real payment or a real deadline moves it on. The demo's compressed clock —
  * live-run.js back-dating a failure 24 days so a whole sequence resolves in one
  * pass — has no counterpart here and must not acquire one.
  *
  * The single exception is `sendFirstMessageNow`, opt-in and off by default.
  * Left alone, the first outreach goes out when the matrix says: an hour after an
  * expired card, seven days after an invoice falls due. That is right for a real
- * recovery and useless for finding out whether Twilio is wired up, so the flag
+ * recovery and useless for a rehearsal, so the flag
  * pulls *only that first action* forward to now. It changes no timestamp on the
  * failure, leaves every later attempt on its real schedule, still obeys quiet
  * hours, and is recorded on the audit trail as an operator override so the
@@ -34,6 +34,7 @@ import { normalisePhone, InvalidPhone } from '../lib/phone.js';
 import { iso } from '../lib/time.js';
 import { DECLINE_CODES, POLICY } from '../lib/taxonomy.js';
 import { PLANS, INVOICE_ITEMS } from '../data/catalog.js';
+import { actionCarriesLink } from './payment-link.js';
 
 const DAY = 86400000;
 
@@ -49,9 +50,9 @@ const hash = (s) => [...s].reduce((n, ch) => (n * 31 + ch.charCodeAt(0)) >>> 0, 
  * Validate the form.
  *
  * `enterprise` is refused rather than accepted-and-ignored: the matrix routes
- * enterprise contact to email unconditionally, so an enterprise live case would
- * open, behave correctly, and never send a WhatsApp message. Saying so up front
- * beats a silent no-op.
+ * enterprise contact to email unconditionally and counts its reminders from an
+ * invoice due date, so an enterprise live case opens with its first action days
+ * out. Saying so up front beats a case that looks stuck.
  */
 export function parseLiveInput(body = {}) {
   const bad = (msg) => { throw new InvalidLiveInput(msg); };
@@ -59,18 +60,23 @@ export function parseLiveInput(body = {}) {
   const customerName = String(body.customerName ?? '').trim().slice(0, 80);
   if (!customerName) bad('Give the customer a name.');
 
-  let phone;
-  try {
-    phone = normalisePhone(body.phone);
-  } catch (err) {
-    if (err instanceof InvalidPhone) bad(err.message);
-    throw err;
+  // Optional. Its only job is to prefill the contact box on the Razorpay
+  // checkout — nothing is ever dialled or messaged — so a blank one is fine and
+  // a malformed one is still worth refusing rather than passing on to Razorpay.
+  let phone = null;
+  if (String(body.phone ?? '').trim()) {
+    try {
+      phone = normalisePhone(body.phone);
+    } catch (err) {
+      if (err instanceof InvalidPhone) bad(err.message);
+      throw err;
+    }
   }
 
   const segment = String(body.segment ?? 'consumer');
   if (segment === 'enterprise') {
-    bad('Enterprise cases are routed to email by the intervention matrix and will never send ' +
-        'a WhatsApp message. Use consumer, prosumer or smb for a live WhatsApp test.');
+    bad('Enterprise cases are routed to email by the intervention matrix, which counts its ' +
+        'reminders from an invoice due date. Use consumer, prosumer or smb here.');
   }
   if (!SEGMENTS.includes(segment)) bad(`Unknown segment: ${segment}. One of ${SEGMENTS.join(', ')}.`);
 
@@ -100,25 +106,40 @@ export function parseLiveInput(body = {}) {
   };
 }
 
-/** A persisted customer for this live case, reusing one by phone if it exists. */
+/**
+ * A persisted customer for this live case, reusing one if it already exists.
+ *
+ * Identity is the phone when there is one, because that is the thing that is
+ * actually unique about a person. With no phone it falls back to the name, which
+ * is weaker — two live cases for two different Meera Iyers would share a row —
+ * but it keeps repeat runs from littering the roster with duplicates, and a
+ * live case is an operator typing in one failure, not a customer import.
+ */
 function upsertCustomer(db, input, now) {
-  const existing = db.prepare(
-    'SELECT * FROM customers WHERE phone = ? ORDER BY created_at DESC LIMIT 1').get(input.phone);
-  if (existing) return existing;
+  const key = input.phone ?? input.customerName.trim().toLowerCase();
+
+  if (input.phone) {
+    const existing = db.prepare(
+      'SELECT * FROM customers WHERE phone = ? ORDER BY created_at DESC LIMIT 1').get(input.phone);
+    if (existing) return existing;
+  }
 
   const first = input.customerName.split(' ')[0].toLowerCase();
   const customer = {
-    id: `cust_live_${hash(input.phone).toString(36)}`,
+    id: `cust_live_${hash(key).toString(36)}`,
     name: input.customerName,
     segment: input.segment,
-    phone: input.phone,
+    // customers.phone is NOT NULL, and the roster's own numbers are generated
+    // placeholders anyway. An empty string says plainly that we have none.
+    phone: input.phone ?? '',
     email: `${first}@example.com`,
     reliability_score: DEFAULT_RELIABILITY[input.segment],
     lifetime_value_inr: DEFAULT_LTV[input.segment],
     timezone: 'Asia/Kolkata',
     salary_day: 1,
-    // Forced, not defaulted. Someone who handed over a WhatsApp number for this
-    // has stated their channel; the matrix reads this field to pick one.
+    // Forced, not defaulted. WhatsApp is the channel the matrix should pick for a
+    // hand-entered consumer failure; it is a statement about which channel the
+    // agent would choose, not a claim that anything is transmitted.
     preferred_channel: 'whatsapp',
     opted_out_at: null,
     disputed_at: null,
@@ -248,6 +269,39 @@ const insert = (db, table, row) => {
 };
 
 /**
+ * Everything that must be settled before the case can be written.
+ *
+ * Split out of `openLiveCase` because minting a real Razorpay link is an async
+ * HTTP call and opening a case is not — the runner is synchronous and every
+ * caller depends on that. The route calls this, awaits Razorpay if the forecast
+ * says the first outreach will carry a link, and hands both back to
+ * `openLiveCase`. See engine/payment-link.js for why the link has to exist
+ * before the case rather than after it.
+ *
+ * Not read-only: it upserts the customer, which is idempotent by phone, so
+ * calling it and then opening the case reuses the one row rather than making two.
+ *
+ * @returns {{customer:object, forecast:object|null, suffix:string,
+ *            referenceId:string, carriesPaymentLink:boolean, now:number}}
+ */
+export function prepareLiveCase(db, input, { now = Date.now() } = {}) {
+  const customer = upsertCustomer(db, input, now);
+  const forecast = firstActionForecast(db, customer, input, now);
+  const suffix = `${Date.now().toString(36)}${Math.floor(Math.random() * 1296).toString(36)}`;
+
+  return {
+    customer,
+    forecast,
+    suffix,
+    now,
+    // Razorpay's own idempotency handle, and what you search their dashboard by
+    // to find the link this case minted.
+    referenceId: `revyn_${suffix}`,
+    carriesPaymentLink: Boolean(forecast && actionCarriesLink(forecast.actionType)),
+  };
+}
+
+/**
  * Open a live case, persist it, and take it as far as it can go right now.
  *
  * Does not send anything — that is engine/delivery.js, called by the route just
@@ -255,15 +309,21 @@ const insert = (db, table, row) => {
  *
  * @returns {{caseRow:object, attempt:object, customer:object, interventions:object[]}}
  */
-export function openLiveCase(db, input, { now = Date.now(), seed = Date.now() % 2147483647 } = {}) {
-  const customer = upsertCustomer(db, input, now);
+export function openLiveCase(db, input, {
+  now = Date.now(),
+  seed = Date.now() % 2147483647,
+  /** From `prepareLiveCase`. Recomputed here when the caller did not need it. */
+  prepared = null,
+  /** A real Razorpay link, already minted for this case's first outreach. */
+  paymentLink = null,
+} = {}) {
+  const prep = prepared ?? prepareLiveCase(db, input, { now });
+  const { customer, forecast, suffix } = prep;
 
   // The failure happened now, because it did. Nothing here is shifted to make a
   // schedule land more conveniently.
-  const forecast = firstActionForecast(db, customer, input, now);
-  const failedAt = now;
+  const failedAt = prep.now;
 
-  const suffix = `${Date.now().toString(36)}${Math.floor(Math.random() * 1296).toString(36)}`;
   const { attempt, subscription, invoice } = buildFailure(db, customer, input, failedAt, suffix);
 
   if (subscription) insert(db, 'subscriptions', subscription);
@@ -271,13 +331,14 @@ export function openLiveCase(db, input, { now = Date.now(), seed = Date.now() % 
   insert(db, 'payment_attempts', attempt);
 
   const runner = createRunner({
-    db, seed, now, mode: 'live',
+    db, seed, now: prep.now, mode: 'live',
     expediteFirstAction: input.sendFirstMessageNow,
   });
   const caseRow = runner.runCase({
     attempt, customer, subscription, invoice,
     deliveryMode: 'live',
     contactPhone: input.phone,
+    paymentLink,
   });
 
   const interventions = db.prepare(
@@ -285,6 +346,7 @@ export function openLiveCase(db, input, { now = Date.now(), seed = Date.now() % 
 
   return {
     caseRow, attempt, customer, subscription, invoice, interventions,
+    paymentLink,
     expedited: Boolean(input.sendFirstMessageNow),
     // What the matrix wanted, kept even when it was overridden — the difference
     // between the two is the only honest way to report what expediting skipped.

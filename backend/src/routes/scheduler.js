@@ -10,9 +10,9 @@ export const schedulerRouter = Router();
 /**
  * What the scheduler is currently sitting on.
  *
- * Useful while testing the real flow: after sending a live WhatsApp message you
- * want to see the case, its deadline, and how long is left on it, without
- * reading the database by hand.
+ * Useful while testing the real flow: after opening a live case you want to see
+ * it, its deadline, and how long is left on it, without reading the database by
+ * hand.
  */
 schedulerRouter.get('/', (req, res) => {
   const db = getDb();

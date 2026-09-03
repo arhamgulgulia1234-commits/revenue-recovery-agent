@@ -1,10 +1,10 @@
 /**
- * Phone numbers, in the one format Twilio accepts.
+ * Phone numbers, normalised to E.164.
  *
  * E.164: a leading '+', a country code, then the subscriber number — no spaces,
- * no dashes, no parentheses, at most 15 digits. Twilio rejects anything else,
- * and its error for a malformed number is far enough from the cause to be worth
- * catching here instead.
+ * no dashes, no parentheses, at most 15 digits. It is what Razorpay wants for a
+ * payment link's contact, and its error for a malformed number is far enough
+ * from the cause to be worth catching here instead.
  *
  * Indian numbers are the common case and the common mistake: people type the
  * ten digits they dial locally, or paste '091', or a number with the spaces

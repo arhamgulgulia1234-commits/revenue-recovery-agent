@@ -25,7 +25,6 @@
 
 import { nowFor } from '../lib/clock.js';
 import { createRunner, RESUMABLE, isTerminal } from './runner.js';
-import { dispatch } from './delivery.js';
 
 /**
  * The runner scopes its randomness to (case, attempt), so a simulated case
@@ -84,37 +83,20 @@ export function sweep(db) {
 
 /**
  * Run sweep() on an interval, and once at startup.
+ *
+ * This is what moves a live case onto its next attempt three days after the
+ * first one, with nobody pressing anything. A sweep is entirely synchronous —
+ * there is no provider to call and nothing to await — so a tick either advances
+ * cases or it does not, and it can never overlap itself.
+ *
  * @returns {() => void} stop
  */
 export function startScheduler(db, { intervalMs = 60000, log = console.log } = {}) {
-  /**
-   * A sweep can push a live case onto its next attempt, which leaves a message
-   * in the outbox. Draining it here is what makes attempt 2 actually arrive on
-   * someone's phone three days after attempt 1, with nobody pressing anything.
-   *
-   * Sweeping is synchronous and sending is not, so the send is chained rather
-   * than awaited: a slow Twilio call delays the next delivery, never the next
-   * sweep. `busy` stops a slow dispatch from overlapping itself if Twilio is
-   * hanging and the interval comes round again.
-   */
-  let busy = false;
-
-  const tick = async (label) => {
+  const tick = (label) => {
     const { checked, advanced, errors } = sweep(db);
     if (advanced.length || errors.length) {
       log(`  scheduler ${label}: ${advanced.length}/${checked} advanced` +
         (errors.length ? ` · ${errors.length} error(s): ${errors[0].message}` : ''));
-    }
-
-    if (busy) return;
-    busy = true;
-    try {
-      await dispatch(db, { log });
-    } catch (err) {
-      // Delivery trouble must never stop the scheduler; the rows stay pending.
-      log(`  scheduler ${label}: delivery failed — ${err.message}`);
-    } finally {
-      busy = false;
     }
   };
 

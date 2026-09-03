@@ -43,6 +43,7 @@ import { decideIntervention } from './matrix.js';
 import { screen, checkAttemptCap, checkHardStop, STOP_REASONS } from './policy.js';
 import { simulateOutcome, simulatePromiseKept } from './outcomes.js';
 import { templateNarrator } from './narrator.js';
+import { linkColumns } from './payment-link.js';
 
 const DAY = 86400000;
 const HOUR = 3600000;
@@ -83,9 +84,8 @@ export function createRunner({
   now = Date.now(),
   /**
    * 'simulated' rolls outcomes off the probability tables in outcomes.js.
-   * 'live' never invents an outcome: a real message went to a real person, so
-   * the only thing that can close the case is a real payment event arriving
-   * before the window expires.
+   * 'live' never invents an outcome: the only thing that can close the case is
+   * a real payment on its Razorpay link, arriving before the window expires.
    */
   mode = 'simulated',
   /**
@@ -113,11 +113,13 @@ export function createRunner({
       INSERT INTO recovery_cases (id,payment_attempt_id,customer_id,case_type,root_cause,
         root_cause_confidence,amount_at_risk_inr,status,attempts_used,opened_at,closed_at,
         closure_reason,recovered_amount_inr,next_action_at,awaiting_log_id,delivery_mode,
-        contact_phone)
+        contact_phone,payment_link_id,payment_link_url,payment_link_ref,payment_link_status,
+        payment_link_created_at,payment_link_checked_at,payment_id,paid_at)
       VALUES (@id,@payment_attempt_id,@customer_id,@case_type,@root_cause,@root_cause_confidence,
         @amount_at_risk_inr,@status,@attempts_used,@opened_at,@closed_at,@closure_reason,
         @recovered_amount_inr,@next_action_at,@awaiting_log_id,@delivery_mode,
-        @contact_phone)`),
+        @contact_phone,@payment_link_id,@payment_link_url,@payment_link_ref,@payment_link_status,
+        @payment_link_created_at,@payment_link_checked_at,@payment_id,@paid_at)`),
     updateCase: db.prepare(`
       UPDATE recovery_cases SET status=@status, attempts_used=@attempts_used, closed_at=@closed_at,
         closure_reason=@closure_reason, recovered_amount_inr=@recovered_amount_inr,
@@ -126,15 +128,13 @@ export function createRunner({
         delivery_mode=@delivery_mode WHERE id=@id`),
     insertLog: db.prepare(`
       INSERT INTO intervention_logs (id,case_id,sequence,action_type,channel,tone,message_sent,
-        scheduled_for,executed_at,response_deadline_at,responded_at,outcome,outcome_detail,
-        delivery_status)
+        scheduled_for,executed_at,response_deadline_at,responded_at,outcome,outcome_detail)
       VALUES (@id,@case_id,@sequence,@action_type,@channel,@tone,@message_sent,@scheduled_for,
-        @executed_at,@response_deadline_at,@responded_at,@outcome,@outcome_detail,
-        @delivery_status)`),
+        @executed_at,@response_deadline_at,@responded_at,@outcome,@outcome_detail)`),
     sendLog: db.prepare(`
       UPDATE intervention_logs SET executed_at=@executed_at, message_sent=@message_sent,
-        response_deadline_at=@response_deadline_at, outcome_detail=@outcome_detail,
-        delivery_status=@delivery_status WHERE id=@id`),
+        response_deadline_at=@response_deadline_at, outcome_detail=@outcome_detail
+        WHERE id=@id`),
     resolveLog: db.prepare(`
       UPDATE intervention_logs SET responded_at=@responded_at, outcome=@outcome,
         outcome_detail=@outcome_detail WHERE id=@id`),
@@ -375,7 +375,7 @@ export function createRunner({
      * A live case runs on the wall clock, so its first outreach lands whenever
      * the matrix says — an hour out for an expired card, seven days for an
      * overdue invoice. That is correct for a real recovery and useless for
-     * finding out whether Twilio is wired up, so `expediteFirstAction` pulls the
+     * finding out whether the integration is wired up, so `expediteFirstAction` pulls the
      * *first* action forward to now.
      *
      * Strictly bounded, because this is the kind of switch that quietly becomes
@@ -446,7 +446,6 @@ export function createRunner({
       responded_at: null,
       outcome: null,
       outcome_detail: 'Scheduled — not yet due',
-      delivery_status: 'simulated',
     });
 
     caseRow.status = 'in_progress';
@@ -456,33 +455,29 @@ export function createRunner({
   }
 
   /**
-   * Send the pending action.
+   * Execute the pending action.
    *
    * A silent retry is answered by the gateway in the same breath, so it executes
    * and resolves together. Anything a person has to read opens a response window
    * and the case waits.
    *
-   * On a live case the actual WhatsApp call does not happen here. This engine is
-   * synchronous — better-sqlite3 is, and every caller depends on that — while an
-   * HTTP call to Twilio is not. So the row is marked 'pending' and engine/
-   * delivery.js sends it just after: a plain outbox. It also happens to be the
-   * more honest record, because writing the row and Twilio accepting the message
-   * are two separate events that really can disagree, and a crash between them
-   * leaves work to be retried rather than a message believed sent.
+   * "Executed" means the agent decided, wrote the copy, and committed to it at
+   * this timestamp. It does not mean a message was transmitted: this build has
+   * no messaging provider, and the outreach is a record of what the agent would
+   * send, on which channel, at which hour. What a live case actually puts in
+   * front of a customer is the Razorpay link on the case.
    */
   function send(ctx, log, at) {
     const { caseRow } = ctx;
     const silent = log.channel === 'none';
     const deadline = silent ? null : at + POLICY.RESPONSE_WINDOW_MS;
-    const delivery = deliveryPlan(caseRow, log);
 
     stmt.sendLog.run({
       id: log.id,
       executed_at: iso(at),
       message_sent: log.message_sent,
       response_deadline_at: deadline == null ? null : iso(deadline),
-      outcome_detail: silent ? 'Retry submitted to the gateway' : delivery.detail,
-      delivery_status: delivery.status,
+      outcome_detail: silent ? 'Retry submitted to the gateway' : 'Sent — awaiting response',
     });
 
     caseRow.attempts_used = log.sequence;
@@ -508,36 +503,12 @@ export function createRunner({
 
 
   /**
-   * Whether this outreach is a real message, and what to say about it.
-   *
-   * Only a live case with a real number on it and a channel this build can
-   * actually deliver over becomes outbox work. Everything else is honest about
-   * why it is not: a live case that routes to email says so on the timeline
-   * rather than quietly looking like it was delivered.
-   */
-  function deliveryPlan(caseRow, log) {
-    if (caseRow.delivery_mode !== 'live' || log.channel === 'none') {
-      return { status: 'simulated', detail: 'Sent — awaiting response' };
-    }
-    if (log.channel !== 'whatsapp') {
-      return {
-        status: 'skipped',
-        detail: `Not delivered — this case runs live and ${log.channel} sending is not wired up`,
-      };
-    }
-    if (!caseRow.contact_phone) {
-      return { status: 'skipped', detail: 'Not delivered — no contact phone on this case' };
-    }
-    return { status: 'pending', detail: 'Queued for WhatsApp delivery' };
-  }
-
-  /**
    * The response window has expired. Whatever was going to happen has happened.
    *
    * In simulated mode the outcome is rolled here off the same tables as before.
    * In live mode nothing is rolled: a real customer either paid through the real
-   * link before the deadline — in which case the webhook already closed this
-   * case — or they did not, and the honest record of that is "no response".
+   * link before the deadline — in which case checking the payment status already
+   * closed this case — or they did not, and the honest record is "no response".
    */
   function resolveWindow(ctx, log, deadline) {
     const executedAt = ms(log.executed_at);
@@ -673,6 +644,14 @@ export function createRunner({
     deliveryMode = mode,
     /** E.164, live cases only. Where this case's WhatsApp outreach actually goes. */
     contactPhone = null,
+    /**
+     * A real Razorpay payment link, already minted, for the outreach this case is
+     * about to write. It has to exist before `runCase` rather than be created
+     * inside it, because the message copy quotes the URL — see engine/
+     * payment-link.js. Null on every simulated case, which is what keeps the
+     * seeded book on its synthetic link text.
+     */
+    paymentLink = null,
   }) {
     const caseId = nextId('case', 'case');
     const openedAt = ms(attempt.created_at);
@@ -695,6 +674,7 @@ export function createRunner({
       awaiting_log_id: null,
       delivery_mode: deliveryMode,
       contact_phone: contactPhone,
+      ...linkColumns(paymentLink),
     };
     stmt.insertCase.run(caseRow);
 
@@ -732,7 +712,7 @@ export function createRunner({
    *
    * This is what the scheduler and the case route call. It reads everything it
    * needs out of the database, so it does not care whether the case was opened
-   * by this process, by the batch, or by a webhook an hour ago.
+   * by this process, by the batch, or by a payment-status check an hour ago.
    */
   function advanceCase(caseId) {
     const caseRow = db.prepare('SELECT * FROM recovery_cases WHERE id = ?').get(caseId);

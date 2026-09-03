@@ -1,20 +1,25 @@
 /**
- * The real path: cases that send actual WhatsApp messages to actual phones.
+ * The real path: persisted cases carrying real Razorpay payment links.
  *
- * Separate from /api/simulate, which runs a case through the engine to be
- * watched and throws it away. Everything here is written to the book and
- * everything here can reach a real person, so it is deliberately a different
- * URL rather than a flag on the existing one.
+ * Separate from /api/simulate/stream, which runs a case through the engine to be
+ * watched and throws it away. Everything here is written to the book and can
+ * take real money on a real link, so it is deliberately a different URL rather
+ * than a flag on the existing one.
  */
 
 import { Router } from 'express';
 import { getDb } from '../db/index.js';
 import {
-  openLiveCase, parseLiveInput, InvalidLiveInput, LIVE_SEGMENTS,
+  openLiveCase, prepareLiveCase, parseLiveInput, InvalidLiveInput, LIVE_SEGMENTS,
 } from '../engine/live-case.js';
-import { dispatch, pendingDeliveries } from '../engine/delivery.js';
+import {
+  mintForCase, checkPaymentStatus, NoPaymentLink, actionCarriesLink,
+} from '../engine/payment-link.js';
+import { decideIntervention, ACTION_LABELS } from '../engine/matrix.js';
 import { advance } from '../engine/scheduler.js';
-import { configSummary } from '../lib/twilio.js';
+import {
+  configSummary as razorpayConfig, TEST_INSTRUMENTS, RazorpayError,
+} from '../lib/razorpay.js';
 import { maskPhone } from '../lib/phone.js';
 import { DECLINE_CODES, POLICY } from '../lib/taxonomy.js';
 import { BUCKET_BY_CODE } from '../engine/classifier.js';
@@ -23,16 +28,34 @@ import { formatIst, iso } from '../lib/time.js';
 export const liveRouter = Router();
 
 /**
- * Whether this deployment can actually send, and what to do about it if not.
+ * Whether this deployment can mint real links, and what to do about it if not.
  *
- * Checked by the dashboard before offering the form, and by a human wondering
- * why nothing arrived. The credentials themselves never appear — only which
- * ones are missing.
+ * Checked by the dashboard before offering the form. The credentials themselves
+ * never appear — only which ones are missing.
  */
 liveRouter.get('/config', (req, res) => {
-  const twilio = configSummary();
+  const razorpay = razorpayConfig();
   res.json({
-    twilio,
+    /**
+     * Whether this deployment can mint real payment links, and what to pay them
+     * with once it can. The test instruments ship with the config rather than
+     * living in a README so that whoever is about to rehearse the flow is handed
+     * them by the same endpoint that says the integration is switched on.
+     */
+    razorpay: {
+      ...razorpay,
+      testInstruments: razorpay.configured ? TEST_INSTRUMENTS : null,
+      setup: razorpay.configured ? null : {
+        missing: razorpay.missing,
+        steps: [
+          'Sign in at dashboard.razorpay.com and turn on the Test Mode toggle (top-left).',
+          'Account & Settings → API Keys → Generate Test Key.',
+          'Copy the Key Id (rzp_test_…) into .env as RAZORPAY_KEY_ID.',
+          'Copy the Key Secret — it is shown exactly once — into .env as RAZORPAY_KEY_SECRET.',
+          'Restart the backend.',
+        ],
+      },
+    },
     segments: LIVE_SEGMENTS,
     responseWindowDays: POLICY.RESPONSE_WINDOW_DAYS,
     /**
@@ -54,23 +77,23 @@ liveRouter.get('/config', (req, res) => {
     // Which decline codes open with a message a human will actually receive,
     // rather than a silent gateway retry. Worth knowing before picking one for
     // a test: 'transient' codes correctly retry in silence and send nothing.
-    declineCodes: Object.entries(DECLINE_CODES).map(([code, m]) => ({
-      code,
-      label: m.label,
-      bucket: BUCKET_BY_CODE[code],
-      sendsMessageFirst: BUCKET_BY_CODE[code] !== 'transient',
-    })),
-    setup: twilio.configured ? null : {
-      missing: twilio.missing,
-      steps: [
-        'Create a free Twilio account at twilio.com/try-twilio.',
-        'Console → Messaging → Try it out → Send a WhatsApp message. That page shows the sandbox number and your join code.',
-        'From the phone you want to test on, send "join <your-code>" on WhatsApp to the sandbox number.',
-        'Copy Account SID and Auth Token from the Console dashboard into .env as TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN.',
-        'Set TWILIO_WHATSAPP_FROM to the sandbox number, e.g. +14155238886, and TWILIO_SANDBOX_JOIN_CODE to your join code.',
-        'Restart the backend.',
-      ],
-    },
+    //
+    // `mintsPaymentLinkFirst` is the one that matters for a Razorpay rehearsal,
+    // and it is asked of the matrix rather than listed here — a decline code
+    // whose first action is a silent retry has no message and therefore no link,
+    // and that is a property of the decision matrix, not of this route.
+    declineCodes: Object.entries(DECLINE_CODES).map(([code, m]) => {
+      const first = firstActionFor(code);
+      return {
+        code,
+        label: m.label,
+        bucket: BUCKET_BY_CODE[code],
+        sendsMessageFirst: BUCKET_BY_CODE[code] !== 'transient',
+        firstAction: first?.actionType ?? null,
+        firstActionLabel: first ? (ACTION_LABELS[first.actionType] ?? first.actionType) : null,
+        mintsPaymentLinkFirst: Boolean(first && actionCarriesLink(first.actionType)),
+      };
+    }),
   });
 });
 
@@ -80,38 +103,58 @@ liveRouter.get('/cases', (req, res) => {
   const rows = db.prepare(`
     SELECT rc.id, rc.status, rc.attempts_used, rc.amount_at_risk_inr, rc.opened_at,
            rc.closed_at, rc.closure_reason, rc.next_action_at, rc.contact_phone,
-           rc.root_cause, c.name AS customer_name
+           rc.root_cause, rc.recovered_amount_inr, rc.payment_link_id, rc.payment_link_url,
+           rc.payment_link_status, rc.paid_at, rc.payment_id, c.name AS customer_name
     FROM recovery_cases rc
     JOIN customers c ON c.id = rc.customer_id
     WHERE rc.delivery_mode = 'live'
     ORDER BY rc.opened_at DESC LIMIT 50`).all();
 
   res.json({
-    cases: rows.map((r) => ({ ...r, contact_phone_masked: maskPhone(r.contact_phone) })),
-    pendingDeliveries: pendingDeliveries(db).length,
+    cases: rows.map((r) => ({
+      ...r,
+      contact_phone_masked: r.contact_phone ? maskPhone(r.contact_phone) : null,
+      paymentLink: paymentLinkView(r),
+    })),
   });
 });
 
 /**
- * Open a live case and send its first message.
+ * Open a live case: mint its payment link, then write it to the book.
  *
- * The send is awaited rather than left to the next scheduler tick, so the
- * response can say what actually happened to the message — the entire point of
- * pressing this button is to find out.
+ * The Razorpay call is awaited rather than left to a later tick, because the
+ * link has to exist before the message copy that quotes it — the entire point of
+ * pressing this button is to come away with a payable URL.
  */
 liveRouter.post('/cases', async (req, res, next) => {
   try {
     const input = parseLiveInput(req.body);
     const db = getDb();
 
-    const opened = openLiveCase(db, input);
-    const result = await dispatch(db, { caseId: opened.caseRow.id });
+    /**
+     * Ask the matrix what it will do *before* committing anything, so a real
+     * payment link can be minted for the message it is about to write. The link
+     * has to exist before the copy that quotes it, and the runner is synchronous
+     * — see engine/payment-link.js for why that ordering is forced.
+     *
+     * A case whose first action is a silent retry mints nothing. Neither does one
+     * opened while Razorpay is unconfigured: it falls back to the synthetic link
+     * text and opens perfectly well, and refusing to open it would be worse.
+     */
+    const prepared = prepareLiveCase(db, input);
+    const minted = await mintForCase({
+      input,
+      customer: prepared.customer,
+      forecast: prepared.forecast,
+      referenceId: prepared.referenceId,
+    });
+
+    const opened = openLiveCase(db, input, { prepared, paymentLink: minted.link });
 
     const caseRow = db.prepare('SELECT * FROM recovery_cases WHERE id = ?').get(opened.caseRow.id);
     const interventions = db.prepare(`
       SELECT sequence, action_type, channel, tone, message_sent, scheduled_for, executed_at,
-             response_deadline_at, delivery_status, provider_message_id, delivered_to,
-             delivered_at, delivery_error, outcome, outcome_detail
+             response_deadline_at, outcome, outcome_detail
       FROM intervention_logs WHERE case_id = ? ORDER BY sequence`).all(caseRow.id);
 
     res.status(201).json({
@@ -121,6 +164,16 @@ liveRouter.post('/cases', async (req, res, next) => {
       amountInr: caseRow.amount_at_risk_inr,
       contactPhone: caseRow.contact_phone,
       openedAt: caseRow.opened_at,
+      /**
+       * The real link, or an honest account of why there isn't one. `error` is
+       * the case that matters: Razorpay was configured, the operator expected a
+       * real link, and the call failed — the case still opened, on synthetic
+       * link text, and saying so beats a URL that quietly goes nowhere.
+       */
+      paymentLink: paymentLinkView(caseRow, {
+        skipped: minted.skipped,
+        error: minted.error,
+      }),
       /**
        * Timing, stated plainly, because this is the thing most easily
        * misunderstood about a live case. `realTime: true` always — the failure
@@ -147,12 +200,6 @@ liveRouter.post('/cases', async (req, res, next) => {
       nextActionAt: caseRow.next_action_at,
       nextActionAtLabel: caseRow.next_action_at ? formatIst(caseRow.next_action_at) : null,
       responseWindowDays: opened.responseWindowDays,
-      delivery: {
-        attempted: result.attempted,
-        sent: result.sent.length,
-        failed: result.failed,
-        held: result.skipped,
-      },
       interventions,
       closureReason: caseRow.closure_reason,
     });
@@ -175,6 +222,7 @@ liveRouter.get('/cases/:id', (req, res) => {
 
   res.json({
     case: caseRow,
+    paymentLink: paymentLinkView(caseRow),
     interventions: db.prepare(
       'SELECT * FROM intervention_logs WHERE case_id = ? ORDER BY sequence').all(caseRow.id),
     audit: db.prepare(
@@ -183,14 +231,77 @@ liveRouter.get('/cases/:id', (req, res) => {
 });
 
 /**
- * Retry whatever is still sitting in the outbox.
+ * Ask Razorpay what has happened to this case's payment link.
  *
- * The case that failed to send because Twilio was not configured yet is the
- * reason this exists: fix .env, restart, press this, rather than re-opening the
- * case and starting the sequence over.
+ * A POST because it can change the case: a link Razorpay reports as paid closes
+ * the case as recovered, at Razorpay's payment timestamp, with an audit entry
+ * saying so. Safe to press repeatedly — the second press re-reads the status and
+ * changes nothing else.
  */
-liveRouter.post('/dispatch', async (req, res, next) => {
+liveRouter.post('/cases/:id/payment-status', async (req, res, next) => {
   try {
-    res.json(await dispatch(getDb(), { caseId: req.body?.caseId ?? null }));
-  } catch (err) { next(err); }
+    res.json(await checkPaymentStatus(getDb(), req.params.id));
+  } catch (err) {
+    if (err instanceof NoPaymentLink) {
+      return res.status(404).json({ error: 'no_payment_link', message: err.message });
+    }
+    // Razorpay being unreachable is not this server's fault and not a 500: the
+    // case is intact and the button is worth pressing again.
+    if (err instanceof RazorpayError) {
+      return res.status(502).json({
+        error: 'razorpay_error', message: err.message, retriable: err.retriable,
+      });
+    }
+    next(err);
+  }
 });
+
+/**
+ * What the matrix chooses first for a given decline code, on a representative
+ * live case.
+ *
+ * A stand-in customer shaped like the ones `openLiveCase` creates: consumer,
+ * WhatsApp, and a gateway that has spent one attempt. Enough for the matrix to
+ * answer "message or silent retry, and does that message carry a link" — which
+ * is all the form needs to warn someone before they pick a code that mints
+ * nothing.
+ */
+function firstActionFor(code) {
+  const now = Date.now();
+  const customer = {
+    segment: 'consumer', preferred_channel: 'whatsapp', salary_day: 1, reliability_score: 0.62,
+  };
+  const attempt = { decline_code: code, attempt_number: 1, amount_inr: 2499 };
+  try {
+    return decideIntervention({
+      bucket: BUCKET_BY_CODE[code], attemptIndex: 0, customer, attempt, caseOpenedAt: now,
+    });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The payment link as the UI needs it: the URL, what Razorpay last said about
+ * it, and — when there is no link — which of the several innocent reasons applies.
+ */
+function paymentLinkView(caseRow, { skipped = null, error = null } = {}) {
+  if (!caseRow.payment_link_id) {
+    return { present: false, skipped, error, id: null, url: null, status: null };
+  }
+  return {
+    present: true,
+    skipped: null,
+    error,
+    id: caseRow.payment_link_id,
+    url: caseRow.payment_link_url,
+    reference: caseRow.payment_link_ref ?? null,
+    status: caseRow.payment_link_status,
+    createdAt: caseRow.payment_link_created_at ?? null,
+    checkedAt: caseRow.payment_link_checked_at ?? null,
+    paymentId: caseRow.payment_id ?? null,
+    paidAt: caseRow.paid_at ?? null,
+    paidAtLabel: caseRow.paid_at ? formatIst(caseRow.paid_at) : null,
+  };
+}
+

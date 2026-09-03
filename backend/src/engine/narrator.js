@@ -199,11 +199,11 @@ function stopReason(stop, ctx) {
  * register available is "we are escalating internally", never a legal threat.
  */
 function draftMessage(action, ctx) {
-  const { customer, attempt, subscription, invoice } = ctx;
+  const { customer, attempt, subscription, invoice, caseRow } = ctx;
   const name = firstName(customer.name);
   const amount = inr(attempt.amount_inr);
   const item = subscription?.plan_name ?? invoice?.invoice_number ?? 'your payment';
-  const link = `${MERCHANT_NAME.toLowerCase()}.in/p/${attempt.id.replace('pay_', '')}`;
+  const link = paymentUrl(caseRow, attempt);
 
   switch (action.actionType) {
     case 'update_card_link':
@@ -267,6 +267,20 @@ function draftMessage(action, ctx) {
     default:
       return null; // silent retries send nothing
   }
+}
+
+/**
+ * The URL the customer is sent to.
+ *
+ * A live case that minted a real Razorpay link carries it on the row, and that
+ * is what goes into the message — the customer taps it and actually pays. Every
+ * other case falls back to the synthetic path it has always used, which is what
+ * keeps the 80-case seeded book byte-identical: those rows have no link column
+ * set and never will.
+ */
+function paymentUrl(caseRow, attempt) {
+  return caseRow?.payment_link_url
+    || `${MERCHANT_NAME.toLowerCase()}.in/p/${attempt.id.replace('pay_', '')}`;
 }
 
 function channelWrap(action, variants) {

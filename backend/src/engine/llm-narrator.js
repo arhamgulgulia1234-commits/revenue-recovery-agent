@@ -164,7 +164,11 @@ export function credentialsPresent() {
 
 /** Shape one case into the facts the model needs, and nothing more. */
 export function buildCasePayload({ caseRow, customer, attempt, subscription, invoice, audit, interventions }) {
-  const link = `${MERCHANT_NAME.toLowerCase()}.in/p/${attempt.id.replace('pay_', '')}`;
+  // A live case that minted a real Razorpay link hands the model that URL, so
+  // the copy it writes is directly payable. Everything else keeps the synthetic
+  // path, which is what the seeded book has always been narrated with.
+  const link = caseRow?.payment_link_url
+    || `${MERCHANT_NAME.toLowerCase()}.in/p/${attempt.id.replace('pay_', '')}`;
 
   return {
     merchant: MERCHANT_NAME,

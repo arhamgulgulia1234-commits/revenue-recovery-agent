@@ -12,7 +12,7 @@ import { schedulerRouter } from './routes/scheduler.js';
 import { liveRouter } from './routes/live.js';
 import { startScheduler } from './engine/scheduler.js';
 import { anchorPinned } from './lib/clock.js';
-import { configSummary } from './lib/twilio.js';
+import { configSummary as razorpayConfig } from './lib/razorpay.js';
 
 const app = express();
 
@@ -45,7 +45,7 @@ app.get('/health', (req, res) => {
   const seeded = db.prepare('SELECT COUNT(*) AS n FROM payment_attempts').get().n;
   res.json({
     ok: true, db: DB_PATH, seededFailures: seeded, policy: POLICY,
-    whatsapp: configSummary(),
+    razorpay: razorpayConfig(),
   });
 });
 
