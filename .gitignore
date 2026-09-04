@@ -38,3 +38,9 @@ yarn-error.log*
 .idea/
 .vscode/
 coverage/
+
+# claude code tooling
+.claude/
+
+# stray root duplicate (real asset lives in frontend/public/)
+/logo.png
