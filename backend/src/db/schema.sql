@@ -103,15 +103,34 @@ CREATE TABLE IF NOT EXISTS recovery_cases (
   -- The intervention the case is currently waiting on a response to.
   awaiting_log_id       TEXT REFERENCES intervention_logs(id),
   -- 'simulated' -> outcomes come from the probability tables in outcomes.js.
-  -- 'live'      -> a real message went to a real phone and the only thing that
-  --                can close this case is a real payment event.
+  -- 'live'      -> nothing is ever modelled. The only thing that can close this
+  --                case is a real payment on its real Razorpay link.
   delivery_mode         TEXT NOT NULL DEFAULT 'simulated'
                         CHECK (delivery_mode IN ('simulated','live')),
-  -- The real phone number this case's outreach goes to, E.164, on a live case.
-  -- It lives on the case rather than on customers because the synthetic roster
-  -- carries generated numbers that must never be dialled: a number here is a
-  -- deliberate statement that a human agreed to receive these messages.
-  contact_phone         TEXT
+  -- Optional. The customer's real phone, E.164, handed to Razorpay so the
+  -- checkout can prefill it. It lives on the case rather than on customers
+  -- because the synthetic roster carries generated numbers that are not real
+  -- people's: a number here is a deliberate statement that this one is.
+  contact_phone         TEXT,
+  -- -- Razorpay ---------------------------------------------------------------
+  -- Set only on a live case whose first outreach actually carries a link, and
+  -- only when a test-mode key is configured. NULL everywhere else, which is what
+  -- keeps the 80-case seeded book on the synthetic link text it has always used.
+  payment_link_id       TEXT,
+  payment_link_url      TEXT,
+  -- Our own idempotency handle on Razorpay's side. Also what you search the
+  -- Razorpay dashboard by to find the link this case minted.
+  payment_link_ref      TEXT,
+  -- Razorpay's own word for it, verbatim: created / paid / partially_paid /
+  -- expired / cancelled. Never inferred locally.
+  payment_link_status   TEXT,
+  payment_link_created_at TEXT,
+  -- When we last asked Razorpay. Distinct from paid_at: the gap between the two
+  -- is exactly why the case must close at Razorpay's timestamp, not at ours.
+  payment_link_checked_at TEXT,
+  -- The captured payment, once there is one.
+  payment_id            TEXT,
+  paid_at               TEXT
 );
 
 -- ---------------------------------------------------------------------------
@@ -134,23 +153,7 @@ CREATE TABLE IF NOT EXISTS intervention_logs (
   -- When the response actually landed, whichever way it went.
   responded_at   TEXT,
   outcome        TEXT CHECK (outcome IN ('recovered','failed','no_response','promise_to_pay','suppressed')),
-  outcome_detail TEXT,
-  -- -- Delivery ---------------------------------------------------------------
-  -- Writing the row and handing the message to Twilio are two different events
-  -- that can disagree, so the record keeps them apart. 'simulated' means there
-  -- was never anything to send; 'pending' means the engine has committed to
-  -- sending and the dispatcher has not got there yet; 'skipped' means a live
-  -- case chose a channel this build cannot deliver on.
-  delivery_status     TEXT NOT NULL DEFAULT 'simulated'
-                      CHECK (delivery_status IN ('simulated','pending','sent','failed','skipped')),
-  -- Twilio's message SID. The receipt: it is what you paste into the Twilio
-  -- console to see what actually happened to this message.
-  provider_message_id TEXT,
-  -- The number actually dialled, recorded as sent rather than re-derived from
-  -- the case later, so the audit trail cannot drift if the case is edited.
-  delivered_to        TEXT,
-  delivered_at        TEXT,
-  delivery_error      TEXT
+  outcome_detail TEXT
 );
 
 CREATE TABLE IF NOT EXISTS promises_to_pay (

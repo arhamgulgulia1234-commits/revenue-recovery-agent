@@ -26,16 +26,39 @@ const ADDED_COLUMNS = {
     awaiting_log_id: 'TEXT',
     delivery_mode: "TEXT NOT NULL DEFAULT 'simulated'",
     contact_phone: 'TEXT',
+    payment_link_id: 'TEXT',
+    payment_link_url: 'TEXT',
+    payment_link_ref: 'TEXT',
+    payment_link_status: 'TEXT',
+    payment_link_created_at: 'TEXT',
+    payment_link_checked_at: 'TEXT',
+    payment_id: 'TEXT',
+    paid_at: 'TEXT',
   },
   intervention_logs: {
     response_deadline_at: 'TEXT',
     responded_at: 'TEXT',
-    delivery_status: "TEXT NOT NULL DEFAULT 'simulated'",
-    provider_message_id: 'TEXT',
-    delivered_to: 'TEXT',
-    delivered_at: 'TEXT',
-    delivery_error: 'TEXT',
   },
+};
+
+/**
+ * Columns that no longer exist, per table.
+ *
+ * These came in with the Twilio outbox — a message could be written and then
+ * separately accepted, refused or held by a provider, and the row had to say
+ * which. With no provider there is no second event to record: the agent writes
+ * the message, and that is the whole of what happened. A column that can only
+ * ever hold one value is worse than no column, so they are dropped rather than
+ * left behind reading 'simulated' forever.
+ *
+ * SQLite cannot drop a column in place on older versions, and doing it one
+ * ALTER at a time would leave a half-migrated table if the process died between
+ * them, so the table is rebuilt from schema.sql the same way a widened CHECK is.
+ */
+const REMOVED_COLUMNS = {
+  intervention_logs: [
+    'delivery_status', 'provider_message_id', 'delivered_to', 'delivered_at', 'delivery_error',
+  ],
 };
 
 /**
@@ -58,6 +81,15 @@ export function migrate(db) {
       db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${decl}`);
       applied.push(`${table}.${name}`);
     }
+  }
+
+  for (const [table, columns] of Object.entries(REMOVED_COLUMNS)) {
+    if (!tableExists(db, table)) continue;
+    const have = new Set(db.pragma(`table_info(${table})`).map((c) => c.name));
+    const stale = columns.filter((c) => have.has(c));
+    if (!stale.length) continue;
+    rebuild(db, table);
+    applied.push(`${table} (dropped ${stale.join(', ')})`);
   }
 
   for (const [table, needle] of Object.entries(WIDENED_CHECKS)) {

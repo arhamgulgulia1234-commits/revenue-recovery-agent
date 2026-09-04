@@ -5,6 +5,7 @@ import {
   STATUS_DISPLAY, SEGMENT_LABELS, type CaseStatus,
 } from '@/lib/api';
 import { Timeline } from '@/components/Timeline';
+import { CasePaymentLink } from '@/components/CasePaymentLink';
 import type { CaseDetail } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
@@ -71,6 +72,18 @@ export default async function CasePage({ params }: { params: Promise<{ id: strin
       </header>
 
       {/* ---- The story ---- */}
+      {c.payment_link_id && (
+        <CasePaymentLink
+          caseId={c.id}
+          url={c.payment_link_url}
+          linkId={c.payment_link_id}
+          status={c.payment_link_status}
+          paidAt={c.paid_at}
+          paymentId={c.payment_id}
+          recoveredInr={c.recovered_amount_inr}
+        />
+      )}
+
       <section>
         <h2 className="text-sm font-semibold mb-5">Decision timeline</h2>
         <Timeline events={data.timeline} caseRow={c} narrator={data.narrator} />

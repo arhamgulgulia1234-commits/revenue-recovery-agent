@@ -7,6 +7,7 @@ import { RateBars, ScoreBadge } from '@/components/RateBars';
 import { ClickableRow } from '@/components/ClickableRow';
 import { Comparison, type ComparisonData } from '@/components/Comparison';
 import { CountUp } from '@/components/CountUp';
+import { LiveStrip, type LiveStats } from '@/components/LiveStrip';
 import Link from 'next/link';
 
 export const dynamic = 'force-dynamic';
@@ -41,13 +42,17 @@ type Failure = {
 export default async function Page() {
   let stats: Stats, failures: Failure[], insights: Insights, attention: AttentionCase[];
   let comparison: ComparisonData;
+  let live: LiveStats | null;
   try {
-    [stats, { failures }, insights, { cases: attention }, comparison] = await Promise.all([
+    [stats, { failures }, insights, { cases: attention }, comparison, live] = await Promise.all([
       api<Stats>('/api/portfolio/stats'),
       api<{ failures: Failure[] }>('/api/portfolio/failures?limit=100'),
       api<Insights>('/api/insights'),
       api<{ cases: AttentionCase[] }>('/api/insights/needs-attention?limit=8'),
       api<ComparisonData>('/api/comparison'),
+      // Tolerant: the dashboard must render exactly as before if the live path
+      // is unreachable or has never been used.
+      api<LiveStats>('/api/live/stats').catch(() => null),
     ]);
   } catch {
     return <Offline />;
@@ -135,6 +140,9 @@ export default async function Page() {
           </div>
         )}
       </section>
+
+      {/* Real money, kept visibly apart from the modelled book above. */}
+      <LiveStrip stats={live} />
 
       {hasRun && <Comparison data={comparison} />}
 

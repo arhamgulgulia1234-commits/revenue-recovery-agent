@@ -168,6 +168,67 @@ pause at stage 4 is the model call actually happening.
 
 ---
 
+## Real payment links — the panel's second mode
+
+The same panel has a **Real payment link** mode, and it is the opposite of the
+simulated one in every respect that matters. It runs on `POST /api/live/cases`,
+not the SSE stream.
+
+| | Simulated | Real payment link |
+|---|---|---|
+| Database | throwaway, in-memory | the real book, `source = 'live'` |
+| Failure timestamp | back-dated 24–50 days | now, unaltered |
+| Payment link | synthetic text | a **real Razorpay test-mode link** |
+| Outcome | rolled off `outcomes.js` | never invented — only Razorpay can close it |
+| Afterwards | nothing to return to | a case id, and a status you can re-check |
+
+**Nothing is transmitted, in either mode.** There is no messaging provider in
+this build. `channel` on an intervention is the agent's *decision* — which
+channel it would use, screened by quiet hours and the customer's preference —
+and the copy it writes is shown on the timeline. The payment link is the one
+artefact a customer could actually act on, which is why it is the only thing
+that can close a live case.
+
+**The link is minted before the case, not during it.** The runner is synchronous
+— better-sqlite3 is, and every caller depends on that — so no HTTP call can
+happen inside `runCase()`. Nor can the link be fetched afterwards: it has to
+*exist before the copy that quotes it*. So `prepareLiveCase()` asks the matrix
+what it will choose, and `mintForCase()` mints a link only if that first action
+carries one. A case whose
+first action is a silent retry mints nothing, which is correct: a link nobody is
+sent is a link nobody pays. The decline-code dropdown labels each code `· link`
+or `· silent retry` accordingly, read from the matrix rather than hardcoded.
+
+**Settling is a pull, not a webhook.** *Check payment status* calls
+`GET /v1/payment_links/:id`. A webhook would be right in production and wrong
+here: it needs a public URL, a signing secret and a tunnel, and it fails silently
+when any of the three is off. The trade is that payment is recorded when someone
+asks rather than the instant it lands — which is exactly why **the case closes at
+Razorpay's payment timestamp, not ours**. Pay at 14:02, check at 16:40, and the
+case still closes at 14:02; otherwise every elapsed time on the dashboard would
+quietly be wrong.
+
+When Razorpay reports the link paid, the case goes to **recovered**, the
+outreach it was parked on is resolved, and an audit entry is written with
+`reasoning_source = 'system'`:
+
+> Payment confirmed via Razorpay — case closed.
+
+Pressing the button again re-reads the status and changes nothing else.
+
+**Test keys only.** `rzp_live_…` is refused outright rather than warned about —
+see `keyMode()` in `lib/razorpay.js`. Razorpay's own SMS and email notifications
+are switched off on every link (`notify: {sms: false, email: false}`,
+`reminder_enable: false`): the agent decides what to say, on which channel, at
+which hour, under quiet-hours and opt-out rules, and a second uncontrolled
+message from the gateway would sit outside all of them.
+
+Set `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET` in `.env` — see `.env.example`
+for where to get them and which test cards and UPI IDs actually work. Without
+them the mode still opens real cases; they just carry the synthetic link text.
+
+---
+
 ## Data model
 
 ```
@@ -183,7 +244,7 @@ customers ──┬── subscriptions ──┐
 | `subscriptions` | Plan, amount, frequency, mandate type (UPI autopay / card / eNACH) |
 | `invoices` | B2B invoices with issue date, due date, PO number |
 | `payment_attempts` | The failure event: amount, decline code, gateway message, attempt number |
-| `recovery_cases` | The agent's unit of work: root cause, status, attempts used, closure reason |
+| `recovery_cases` | The agent's unit of work: root cause, status, attempts used, closure reason, and — on a live case — the Razorpay link, its last-known status and the real payment timestamp |
 | `intervention_logs` | Every action taken: type, channel, tone, message text, outcome |
 | `promises_to_pay` | Promised date and amount, and whether it was honoured |
 | `audit_entries` | One row per decision, with reasoning text and its source (`llm` / `template`) |

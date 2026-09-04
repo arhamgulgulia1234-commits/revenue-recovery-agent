@@ -24,6 +24,7 @@ const NAV = [
   { href: '/', label: 'Dashboard' },
   { href: '/stopped', label: 'Where we stopped' },
   { href: '/simulate', label: 'Simulate a failure' },
+  { href: '/payment-link', label: 'Generate Payment Link' },
 ];
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -36,10 +37,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <span className="grid h-7 w-7 place-items-center rounded-md bg-black shrink-0 overflow-hidden">
                 <Image src="/logo.png" alt="REVYN" width={28} height={28} className="h-full w-full object-contain" priority />
               </span>
-              <span className="flex flex-col leading-none">
-                <span className="text-[13px] font-semibold tracking-tight">REVYN</span>
-                <span className="text-[10.5px] text-muted mt-0.5">Razorpay AI Buildathon · Track 3</span>
-              </span>
+              <span className="text-[13px] font-semibold tracking-tight">REVYN</span>
             </a>
             <nav className="ml-auto flex items-center gap-1 text-sm">
               {NAV.map((item) => (
